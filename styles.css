@@ -153,3 +153,66 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 /* Logo legível mesmo sem acesso ao CDN */
 .site-brand .logo-fallback-text{display:block}.site-brand.logo-loaded .logo-fallback-text{display:none}
 .site-brand .site-logo[hidden]{display:none}
+
+
+/* Droid Tycoon — fundos de variantes, inspiração nas texturas do jogo.
+   Implementação CSS local e leve. Não são arquivos originais das cartas do jogo.
+   Todas as cores são estritamente de apresentação: os valores internos permanecem iguais. */
+.droid-thumb {
+ --tier-color:#8ba6c6;
+ --tier-glow:rgba(115,157,203,.18);
+ --tier-bg:linear-gradient(145deg,#27394f 0%,#101b2d 80%);
+ border-color:color-mix(in srgb,var(--tier-color),#17243c 44%);
+ background:var(--tier-bg);
+ isolation:isolate;
+ box-shadow:inset 0 0 0 1px #ffffff0a,0 0 12px var(--tier-glow);
+}
+.droid-thumb::before {
+ content:"";position:absolute;inset:0;z-index:0;pointer-events:none;opacity:.7;
+ background-image:
+  radial-gradient(1.3px 1.3px at 21% 23%,#ffffffb5 85%,transparent 100%),
+  radial-gradient(1px 1px at 71% 17%,#ffffffe2 85%,transparent 100%),
+  radial-gradient(1px 1px at 66% 73%,#ffffffa0 85%,transparent 100%),
+  radial-gradient(1px 1px at 18% 79%,#ffffffae 85%,transparent 100%),
+  radial-gradient(1px 1px at 88% 51%,#ffffff98 85%,transparent 100%),
+  linear-gradient(125deg,transparent 34%,#ffffff1a 49%,transparent 62%);
+}
+.droid-thumb::after {
+ content:"";position:absolute;inset:0;z-index:3;pointer-events:none;
+ border-radius:inherit;box-shadow:inset 0 0 0 1px #ffffff25,inset 0 -8px 15px #00000021;
+}
+.droid-thumb img{z-index:2;filter:drop-shadow(0 2px 3px #02060c70)}
+.droid-fallback{z-index:1;color:var(--tier-color);text-shadow:0 0 9px var(--tier-color)}
+.droid-thumb[data-variant="Default"]{--tier-color:#a8b7c7;--tier-bg:linear-gradient(135deg,#46546a 0%,#2b384a 38%,#111a2a 100%);--tier-glow:#7e97b722}
+.droid-thumb[data-variant="Gold"]{--tier-color:#ffe093;--tier-bg:radial-gradient(ellipse at 72% 16%,#ffe8a0 0%,#a06b26 29%,#53330c 63%,#211709 100%);--tier-glow:#f8b54466}
+.droid-thumb[data-variant="Diamond"]{--tier-color:#b7edff;--tier-bg:linear-gradient(145deg,#b7fbff 0%,#388dbc 32%,#12547e 60%,#092e55 100%);--tier-glow:#65ddff70}
+.droid-thumb[data-variant="Rainbow"]{--tier-color:#ffffff;--tier-bg:conic-gradient(from 240deg at 55% 55%,#3a227b,#aa3678,#e5aa42,#52b895,#396bd4,#3a227b);--tier-glow:#bf89eb66}
+.droid-thumb[data-variant="Beskar"]{--tier-color:#dfebf1;--tier-bg:repeating-linear-gradient(147deg,#ecf2f644 0 1px,transparent 1px 7px),linear-gradient(130deg,#9eabb5 0%,#3f5362 34%,#1b2d3b 75%,#354451 100%);--tier-glow:#adc6cf55}
+.droid-thumb[data-variant="Galactic"]{--tier-color:#e9caff;--tier-bg:radial-gradient(ellipse at 77% 18%,#bb75e288,transparent 38%),radial-gradient(ellipse at 14% 82%,#6b48d599,transparent 60%),linear-gradient(145deg,#6e47a1,#27155c 55%,#120c36);--tier-glow:#b476ff88}
+.droid-thumb[data-variant="Stellar"]{--tier-color:#ffe6a6;--tier-bg:radial-gradient(ellipse at 70% 22%,#fff3be 0%,#f4cc65 13%,transparent 40%),radial-gradient(ellipse at 25% 80%,#de8c2caa,transparent 54%),linear-gradient(125deg,#8d581e,#4d2e12 58%,#1f192a);--tier-glow:#ffd56d9c}
+.droid-thumb[data-variant="Stellar"]::before{opacity:1;background-image:
+ radial-gradient(2px 2px at 18% 23%,#fff 88%,transparent),radial-gradient(1.5px 1.5px at 83% 40%,#fff 88%,transparent),radial-gradient(1.5px 1.5px at 60% 77%,#fff 88%,transparent),radial-gradient(2px 2px at 39% 62%,#ffe7a7 88%,transparent),
+ linear-gradient(38deg,transparent 32%,#ffe7a563 33%,transparent 34%,transparent 73%,#ffefad52 74%,transparent 75%)}
+.droid-thumb[data-variant="Kyber"]{--tier-color:#bcefff;--tier-bg:radial-gradient(ellipse at 50% 50%,#8be8ffff 0%,#3879c5a8 26%,transparent 52%),conic-gradient(from 25deg,#094073,#19265f,#682c9c,#073e67,#094073);--tier-glow:#70dcffb3}
+.droid-thumb[data-variant="Kyber"]::before{opacity:.95;background-image:
+ linear-gradient(42deg,transparent 34%,#bdf9ffb3 35%,transparent 37%),
+ linear-gradient(132deg,transparent 48%,#c0d7ff9c 49%,transparent 51%),
+ radial-gradient(2px 2px at 22% 26%,#fff 92%,transparent),
+ radial-gradient(2px 2px at 76% 73%,#fff 92%,transparent)}
+.droid-thumb[data-variant="Única"]{--tier-color:#ffdcf4;--tier-bg:radial-gradient(ellipse at 35% 35%,#d283ca,#743e88 51%,#292045);--tier-glow:#d990eb69}
+/* selo da variante: combina com a miniatura sem modificar as regras de comparação */
+.variant-token{color:#c8d4e7;border:1px solid #405574;background:#24364d}
+.variant-token[data-variant="Default"]{color:#d1dbe7;background:#38465a;border-color:#6d8197}
+.variant-token[data-variant="Gold"]{color:#ffe8ae;background:#654a20;border-color:#af8a38}
+.variant-token[data-variant="Diamond"]{color:#d1f6ff;background:#174867;border-color:#348fbb}
+.variant-token[data-variant="Rainbow"]{color:#fff;background:linear-gradient(125deg,#5f316a,#4f3e89,#276c85);border-color:#ad75ca}
+.variant-token[data-variant="Beskar"]{color:#e2edf4;background:#344856;border-color:#879ba7}
+.variant-token[data-variant="Galactic"]{color:#ebd8ff;background:#3c295e;border-color:#8a62ce}
+.variant-token[data-variant="Stellar"]{color:#fff2be;background:#5f421e;border-color:#ce9e47}
+.variant-token[data-variant="Kyber"]{color:#bff9ff;background:#183c6c;border-color:#55b5e9}
+.variant-token[data-variant="Única"]{color:#ffe1f6;background:#593357;border-color:#b675a5}
+/* textos e miniaturas não estouram layout do celular */
+.droid-entry,.requirement-entry,.catalog-item,.path-cycle-row,.result-droid{min-width:0}
+.droid-entry .droid-info,.requirement-entry .droid-info{overflow-wrap:anywhere}
+.droid-thumb-lg{box-shadow:0 0 25px var(--tier-glow),inset 0 0 0 1px #ffffff24}
+@media (prefers-reduced-motion:reduce){.droid-thumb,.droid-thumb:before,.droid-thumb:after{animation:none!important;transition:none!important}}
