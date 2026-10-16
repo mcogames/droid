@@ -243,3 +243,14 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
  .rarity-label[data-rarity="Common"],.rarity-label[data-rarity="Iconic"]{padding-left:0;padding-right:0}
  .droid-heading{gap:5px}
 }
+
+/* Auditoria das fotos dos 100 droids */
+.image-audit-summary{padding:10px 0;color:var(--text);font-size:12px;font-weight:750;font-variant-numeric:tabular-nums}
+.image-audit-track{background:#26384d;border:1px solid #39526a;height:8px;border-radius:99px;overflow:hidden}
+.image-audit-track>div{background:#69bfbb;height:100%;width:0;transition:width .18s ease}
+.image-audit-errors{font-size:12px;color:var(--muted);line-height:1.7;margin-top:12px;overflow-wrap:anywhere}
+.image-audit-errors ul{margin:8px 0 0;padding-left:18px;max-height:270px;overflow-y:auto}
+.image-audit-errors li{margin:5px 0}
+.image-audit-errors li b{color:var(--text)}
+.image-audit-errors a{color:var(--primary);text-decoration:underline}
+.image-audit-errors .audit-success{color:#a3eec8}
