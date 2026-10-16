@@ -216,3 +216,30 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .droid-entry .droid-info,.requirement-entry .droid-info{overflow-wrap:anywhere}
 .droid-thumb-lg{box-shadow:0 0 25px var(--tier-glow),inset 0 0 0 1px #ffffff24}
 @media (prefers-reduced-motion:reduce){.droid-thumb,.droid-thumb:before,.droid-thumb:after{animation:none!important;transition:none!important}}
+
+
+/* v4 — raridades do Droid Tycoon (somente a etiqueta recebe cor).
+   Cor da categoria e identificadores do banco não são modificados. */
+.rarity-label {
+ display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;
+ border-radius:6px;padding:2px 7px;min-height:18px;line-height:1.25;
+ font-size:10px;font-weight:850;letter-spacing:.08px;white-space:nowrap;
+ color:#d5dfed;background:transparent;border:0;flex-shrink:0;
+}
+.rarity-label[data-rarity="Rare"]{background:#2169b8;color:#f2f8ff}
+.rarity-label[data-rarity="Epic"]{background:#7139ac;color:#f9f3ff}
+.rarity-label[data-rarity="Legendary"]{background:#ac5d14;color:#fff6e9}
+.rarity-label[data-rarity="Mythic"]{background:#b53177;color:#fff1f8}
+.rarity-label[data-rarity="Common"],
+.rarity-label[data-rarity="Iconic"]{background:transparent;border:0;color:#cad6e5;padding-left:0;padding-right:0}
+.rarity-meta{display:inline-flex!important;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.45}
+.rarity-meta .role-label{font-size:inherit;color:var(--muted)}
+.rarity-meta .role-label:not(:first-child)::before{content:"·";margin-right:6px;color:var(--quiet)}
+.path-cycle-row .rarity-label{font-size:10px}
+.result-droid .rarity-meta,.catalog-item .rarity-meta{font-size:10px}
+.droid-heading .rarity-label{font-size:9px}
+@media(max-width:420px){
+ .rarity-label{font-size:9px;padding:2px 6px}
+ .rarity-label[data-rarity="Common"],.rarity-label[data-rarity="Iconic"]{padding-left:0;padding-right:0}
+ .droid-heading{gap:5px}
+}
