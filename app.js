@@ -1,7 +1,8 @@
-/* Droid Tycoon — v5: UTIL-TEC e auditoria de imagens; armazenamento v1 preservado. */
+/* Droid Tycoon — v6: contas independentes, migração segura e backup conjunto. */
 (()=>{'use strict';
 const DB=window.DROID_DB;
 const STORE='droidtycoon_local_v1', RESTORE='droidtycoon_restore_undo_v1', NOTICE_KEY='droidtycoon_sale_notices_v2';
+const ACCOUNTS_KEY='droidtycoon_accounts_v1', ACCOUNTS_UNDO='droidtycoon_accounts_restore_v1';
 const T=DB.tiers, CAT=DB.catalog, R=DB.requirements, byName=Object.fromEntries(CAT.map(d=>[d.name,d]));
 // Traduções apenas para apresentação; os identificadores originais permanecem intactos.
 const RARITY_PT={Common:'Comum',Rare:'Raro',Epic:'Épico',Legendary:'Lendário',Mythic:'Mítico',Iconic:'Icônico'};
@@ -37,18 +38,78 @@ function sanitize(raw){if(!raw||typeof raw!=='object'||raw.schema!==1)throw new 
  for(const [k,max]of [['sales',30],['history',30],['completed',40]]) if(Array.isArray(raw[k]))x[k]=raw[k].filter(a=>a&&typeof a==='object').slice(-max).map(a=>JSON.parse(JSON.stringify(a))).filter(a=>JSON.stringify(a).length<25000);
  x.lastModified=Number(raw.lastModified)||Date.now();return x;
 }
-function load(){try{const s=localStorage.getItem(STORE);return s?sanitize(JSON.parse(s)):empty()}catch(e){return empty()}}
-let state=load(),ui={tab:state.path?'dashboard':'search',open:new Set(['pending']),search:'',pathFilter:0,detail:'',detailTier:'',browsePath:1,browseCycle:1,catalogSearch:'',catalogRarity:'Todos',catalogAll:false,batch:{},batchMode:true,setupPath:1,setupCycle:1,inventorySearch:'',inventoryFilter:'Todos',modal:null},undo=null,toastTimer=null;
-function readNotices(){try{const raw=JSON.parse(localStorage.getItem(NOTICE_KEY)||'{}');if(!raw||typeof raw!=='object'||Array.isArray(raw))return {};return Object.fromEntries(Object.entries(raw).filter(([key,x])=>x&&typeof x==='object'&&validName(x.name)&&validTier(x.name,x.tier)&&Number.isSafeInteger(x.qty)&&x.qty>0).slice(0,100));}catch{return {}}}
-let unreadNotices=readNotices();
-function storeNotices(){try{localStorage.setItem(NOTICE_KEY,JSON.stringify(unreadNotices))}catch(e){notify('Não foi possível salvar os avisos.',false)}}
+// O armazenamento v1 NÃO é apagado. Na primeira abertura, é copiado para a conta inicial.
+function readLegacy(){try{const raw=localStorage.getItem(STORE);return raw?sanitize(JSON.parse(raw)):empty()}catch(e){return empty()}}
+function sanitizeNotices(raw){if(!raw||typeof raw!=='object'||Array.isArray(raw))return {};return Object.fromEntries(Object.entries(raw).filter(([key,x])=>x&&typeof x==='object'&&validName(x.name)&&validTier(x.name,x.tier)&&Number.isSafeInteger(x.qty)&&x.qty>0).slice(0,100));}
+function readLegacyNotices(){try{return sanitizeNotices(JSON.parse(localStorage.getItem(NOTICE_KEY)||'{}'))}catch(e){return {}}}
+function newId(){return 'conta-'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));}
+function validAccountName(name){const value=String(name||'').trim();return value.length>=1&&value.length<=40&&!/[\u0000-\u001F\u007F]/.test(value)?value:null}
+function nameAvailable(name,excluding=''){return !accountsDb.accounts.some(a=>a.id!==excluding&&a.name.toLocaleLowerCase('pt-BR')===name.toLocaleLowerCase('pt-BR'))}
+function sanitizeAccounts(raw){
+ if(!raw||raw.schema!==2||!Array.isArray(raw.accounts)||!raw.accounts.length)throw new Error('Backup de contas incompatível.');
+ const ids=new Set(),names=new Set();
+ const a=raw.accounts.map(row=>{
+  const id=typeof row.id==='string'&&row.id.length>0&&row.id.length<=100?row.id:null;
+  const name=validAccountName(row.name);
+  if(!id||ids.has(id)||!name||names.has(name.toLocaleLowerCase('pt-BR')))throw new Error('Contas com nomes ou identificadores inválidos.');
+  ids.add(id);names.add(name.toLocaleLowerCase('pt-BR'));
+  return {id,name,data:sanitize(row.data),notices:sanitizeNotices(row.notices)};
+ });
+ return {schema:2,activeId:a.some(x=>x.id===raw.activeId)?raw.activeId:a[0].id,accounts:a};
+}
+function loadAccounts(){
+ const old=localStorage.getItem(ACCOUNTS_KEY);
+ if(old!==null)return sanitizeAccounts(JSON.parse(old));
+ const initial={schema:2,activeId:newId(),accounts:[]};
+ initial.accounts.push({id:initial.activeId,name:'Minha conta',data:readLegacy(),notices:readLegacyNotices()});
+ // Falha de gravação bloqueia alterações para evitar falsa sensação de segurança.
+ localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(initial));
+ return initial;
+}
+let accountsDb=null,storageError='';
+try{accountsDb=loadAccounts()}catch(e){storageError=e.message||'Armazenamento indisponível.';accountsDb={schema:2,activeId:'bloqueada',accounts:[{id:'bloqueada',name:'Recuperação',data:readLegacy(),notices:{}}]}}
+function currentAccount(){return accountsDb.accounts.find(a=>a.id===accountsDb.activeId)||accountsDb.accounts[0]}
+let state=currentAccount().data,unreadNotices=currentAccount().notices;
+let ui={tab:state.path?'dashboard':'search',open:new Set(['pending']),search:'',pathFilter:0,detail:'',detailTier:'',browsePath:1,browseCycle:1,catalogSearch:'',catalogRarity:'Todos',catalogAll:false,batch:{},batchMode:true,setupPath:1,setupCycle:1,inventorySearch:'',inventoryFilter:'Todos',modal:null},undo=null,toastTimer=null;
+function saveAccountsBlob(){
+ if(storageError){notify('Salvamento bloqueado: '+storageError);return false}
+ try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accountsDb));return true}
+ catch(e){notify('Não foi possível salvar as contas. Exporte seu backup e libere espaço no navegador.');return false}
+}
+function writeAccounts(){const a=currentAccount();a.data=state;a.notices=unreadNotices;return saveAccountsBlob()}
+function storeNotices(){writeAccounts()}
+function activateAccount(id){
+ const next=accountsDb.accounts.find(a=>a.id===id);if(!next||id===accountsDb.activeId)return;
+ if(!writeAccounts())return;
+ const previous=accountsDb.activeId;accountsDb.activeId=id;
+ if(!saveAccountsBlob()){accountsDb.activeId=previous;return}
+ state=next.data;unreadNotices=next.notices;
+ undo=null;ui.modal=null;ui.detail='';ui.detailTier='';ui.batch={};
+ render();notify('Conta ativa: '+next.name);
+}
+function resetAccountView(){state=currentAccount().data;unreadNotices=currentAccount().notices;undo=null;ui.modal=null;ui.detail='';ui.detailTier='';ui.batch={};}
+function accountHeader(){
+ const el=document.getElementById('account-select');if(!el)return;
+ el.innerHTML=accountsDb.accounts.map(a=>`<option value="${h(a.id)}" ${a.id===accountsDb.activeId?'selected':''}>${h(a.name)}</option>`).join('');
+ el.title='Conta ativa: '+currentAccount().name;
+}
+function saveUndoSnapshot(){try{localStorage.setItem(ACCOUNTS_UNDO,JSON.stringify(accountsDb));return true}catch(e){notify('Não foi possível salvar a cópia de segurança. Restauração cancelada.');return false}}
+function restoreAccountsSnapshot(){
+ try{
+  const prev=sanitizeAccounts(JSON.parse(localStorage.getItem(ACCOUNTS_UNDO)));
+  const now=JSON.stringify(accountsDb);
+  localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(prev));
+  localStorage.setItem(ACCOUNTS_UNDO,now);
+  accountsDb=prev;resetAccountView();render();notify('Contas anteriores restauradas.');
+ }catch(e){notify('Não foi possível desfazer a restauração.');}
+}
 function salesMap(){return new Map(requireCounts().saleEntries.map(x=>[nextId(x.name,x.tier),x.qty]))}
 function reconcileNotices(before){const after=salesMap();for(const [key,v] of Object.entries(unreadNotices)){const left=after.get(key)||0;if(left<=0)delete unreadNotices[key];else v.qty=Math.min(v.qty,left)}
  for(const e of requireCounts().saleEntries){const k=nextId(e.name,e.tier),newly=e.qty-(before.get(k)||0);if(newly>0)unreadNotices[k]={name:e.name,tier:e.tier,qty:Math.min(e.qty,(unreadNotices[k]?.qty||0)+newly),createdAt:new Date().toISOString()}}
  storeNotices();}
 function listNewSales(){const available=salesMap();return Object.values(unreadNotices).filter(x=>available.has(nextId(x.name,x.tier))).map(x=>({...x,qty:Math.min(x.qty,available.get(nextId(x.name,x.tier)))})).filter(x=>x.qty>0)}
 const app=document.getElementById('app');
-function persist(){state.lastModified=Date.now();try{localStorage.setItem(STORE,JSON.stringify(state))}catch(e){notify('Não foi possível salvar. Verifique o armazenamento do navegador.',true)}}
+function persist(){state.lastModified=Date.now();return writeAccounts()}
 function notify(message,withUndo=false){const el=document.getElementById('toast');el.innerHTML=h(message)+(withUndo?` <button type="button" data-action="undo">Desfazer</button>`:'');el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),5700)}
 function save(mutator,message){const before=JSON.stringify(state),oldNotices=JSON.stringify(unreadNotices),oldSales=salesMap();mutator();persist();reconcileNotices(oldSales);undo=()=>{state=sanitize(JSON.parse(before));unreadNotices=JSON.parse(oldNotices);persist();storeNotices();render();notify('Alteração desfeita.')};render();if(message)notify(message,!!undo)}
 const reqFor=(name,path=state.path,from=state.cycle)=>R.filter(x=>x.name===name&&x.p===path&&x.c>=from).sort((a,b)=>a.c-b.c);
@@ -124,9 +185,11 @@ function inventory(){const s=getStats();const relevant=CAT.filter(d=>reqFor(d.na
  const catalog=`<section class="card card-pad" style="margin-top:17px"><div class="wizard-path-title"><h2 style="margin:0">Adicionar droids</h2>${badge(`${pool.length} resultados`,'blue')}</div><div class="utility-bar"><div class="searchbox"><input class="input search-input" data-input="catalogSearch" value="${h(ui.catalogSearch)}" placeholder="Buscar no catálogo..."></div><div class="field"><label class="hidden" for="catalog-rarity">Raridade</label><select class="select" id="catalog-rarity" data-input="catalogRarity">${selects([{value:'Todos',label:'Todas as raridades'},...['Common','Rare','Epic','Legendary','Mythic','Iconic'].map(value=>({value,label:rarityLabel(value)}))],ui.catalogRarity)}</select></div></div><div class="filter-row"><div class="seg"><button type="button" data-action="catalogMode" data-mode="current" class="${!ui.catalogAll?'on':''}">Do meu caminho</button><button type="button" data-action="catalogMode" data-mode="all" class="${ui.catalogAll?'on':''}">Todos os 100</button></div></div><p class="mini-note">Toque em + Adicionar ou selecione vários para cadastrar em lote.</p><div class="catalog-items">${pool.map(d=>`<div class="catalog-item"><button type="button" ${panelButton(d.name)}>${imageOf(d.name,false,best(d.name)||"Default")}<span class="droid-info"><span class="name">${h(d.name)}</span><span class="info rarity-meta">${rarityTag(d.rarity)} <span class="role-label">${h(roleLabel(d.role))}</span></span>${state.path&&reqFor(d.name).length?`<span class="info">Próximo ciclo ${reqFor(d.name)[0].c}</span>`:''}</span></button><div class="catalog-actions"><label class="batch-check"><input class="checkbox" type="checkbox" data-input="batchToggle" data-name="${h(d.name)}" ${ui.batch[d.name]?'checked':''}> Lote</label>${btn('+ Adicionar','add',{kind:'secondary',size:'small',attrs:`data-name="${h(d.name)}"`})}</div>${ui.batch[d.name]?`<div class="batch-box"><span class="small muted">Variante</span>${tierSelect(ui.batch[d.name].tier,d.rarity==='Iconic','batchTier',`data-input="batchTier" data-name="${h(d.name)}"`)}<span class="small muted">Quantidade</span><input class="input" type="number" min="1" max="10000" value="${ui.batch[d.name].qty}" data-input="batchQty" data-name="${h(d.name)}" aria-label="Quantidade de ${h(d.name)}"></div>`:''}</div>`).join('')||'<div class="empty">Nenhum droid corresponde aos filtros.</div>'}</div></section>`;
  return titlePage('INVENTÁRIO','Meus Droids','Inventário salvo automaticamente neste navegador',state.path?btn('Meu caminho','opendashboard',{kind:'secondary'}):btn('Escolher caminho','setup'))+(!state.path?'<div class="hint" style="margin-bottom:18px">Selecione um caminho para ativar as recomendações de venda.</div>':'')+myDroids+catalog+(Object.keys(ui.batch).length?`<div class="sticky-batch"><span><b>${Object.keys(ui.batch).length} selecionado(s)</b></span>${btn('Salvar em lote','saveBatch')}</div>`:'')+footer();
 }
-function settings(){let s=getStats();return titlePage('CONFIGURAÇÕES','Seus dados, sob seu controle','Sem cadastro. Tudo fica neste navegador e você pode fazer backup quando quiser.')+`<div class="grid-2"><div class="card card-pad"><h3>⇩ Exportar backup</h3><p class="muted small">Salve um arquivo JSON com seus droids, ciclo e registro resumido de ações.</p>${btn('Baixar meu backup','export',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇧ Restaurar backup</h3><p class="muted small">Confira o arquivo antes de restaurar. Guardaremos uma cópia dos dados atuais para desfazer.</p>${btn('Escolher arquivo','import',{kind:'secondary'})}</div></div><section class="card card-pad" style="margin-top:17px"><h3>Meu progresso</h3><div class="small muted">Caminho: <b>${state.path||'Não configurado'}</b> · Ciclo: <b>${state.cycle}</b> · Droids cadastrados: <b>${s.total}</b></div><div class="utility-bar">${state.path?`${btn('Corrigir ciclo','cycle',{kind:'secondary'})}${btn('Trocar de caminho','changePath',{kind:'ghost'})}`:btn('Configurar caminho','setup',{kind:'secondary'})}</div>${state.history.length?`<h4 class="subheading">Caminhos anteriores</h4>${state.history.slice(-5).reverse().map(x=>`<div class="details-line">Caminho ${h(x.path)} · Ciclo ${h(x.cycle)} <span class="small">${h(x.date||'')}</span></div>`).join('')}`:''}</section><section class="card card-pad" style="margin-top:17px"><h3>Verificar fotos dos droids</h3><p class="small muted">Confira se as imagens dos 100 droids carregam na sua conexão. O teste não altera seu inventário.</p>${btn('Testar as 100 imagens','auditImages',{kind:'secondary'})}</section><section class="card card-pad" style="margin-top:17px"><h3>Privacidade e armazenamento</h3><p class="small muted">Os dados pessoais não são enviados ao Google Sheets nem ao GitHub. Eles ficam apenas no armazenamento deste navegador. Em outro aparelho, importe seu backup para continuar. Na navegação anônima ou após limpar dados do navegador, você pode perder informações sem backup.</p><div class="utility-bar">${btn('Conferir fonte dos requisitos','source',{kind:'ghost'})}${localStorage.getItem(RESTORE)?btn('Desfazer última restauração','undoRestore',{kind:'secondary'}):''}</div></section>`+footer();}
+function uniqueImportName(){const base='Conta importada';let name=base,i=2;while(!nameAvailable(name)){name=base+' '+i++;}return name}
+function accountSettings(){return `<section class="card card-pad account-settings"><div class="wizard-path-title"><div><h2 style="margin:0">Minhas contas</h2><p class="muted small">Cada conta possui inventário, progresso e avisos próprios.</p></div>${btn('+ Nova conta','createAccount',{kind:'secondary'})}</div><div class="account-list">${accountsDb.accounts.map(a=>{const active=a.id===accountsDb.activeId,qty=arrInventory(a.data).reduce((n,e)=>n+e.qty,0);return `<div class="account-row ${active?'account-current':''}"><div class="account-row-info"><strong>${h(a.name)}</strong>${active?'<span class="account-active-tag">Ativa</span>':''}<small>Caminho ${a.data.path||'não definido'} · Ciclo ${a.data.cycle} · ${nf(qty)} droid(s)</small></div><div class="account-row-buttons">${!active?btn('Usar','activateAccount',{kind:'secondary',size:'small',attrs:`data-id="${h(a.id)}"` }):''}${btn('Renomear','renameAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"`})}${accountsDb.accounts.length>1?btn('Excluir','deleteAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"` }):''}</div></div>`}).join('')}</div><p class="mini-note">A última conta utilizada será aberta automaticamente. Para trocar de conta em qualquer tela, use o seletor no topo.</p></section>`}
+function settings(){let s=getStats();return titlePage('CONFIGURAÇÕES','Seus dados, sob seu controle','Sem cadastro. Tudo fica neste navegador e você pode fazer backup quando quiser.')+accountSettings()+`<div class="grid-2" style="margin-top:17px"><div class="card card-pad"><h3>⇩ Backup de todas as contas</h3><p class="muted small">Salve um arquivo JSON com os inventários, caminhos, ciclos e avisos de todas as contas.</p>${btn('Baixar backup completo','export',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇧ Importar backup</h3><p class="muted small">Backup completo substitui todas as contas após confirmação; backup antigo cria uma nova conta. Guardamos uma cópia para desfazer.</p>${btn('Escolher arquivo','import',{kind:'secondary'})}</div></div><section class="card card-pad" style="margin-top:17px"><h3>Meu progresso</h3><div class="small muted">Caminho: <b>${state.path||'Não configurado'}</b> · Ciclo: <b>${state.cycle}</b> · Droids cadastrados: <b>${s.total}</b></div><div class="utility-bar">${state.path?`${btn('Corrigir ciclo','cycle',{kind:'secondary'})}${btn('Trocar de caminho','changePath',{kind:'ghost'})}`:btn('Configurar caminho','setup',{kind:'secondary'})}</div>${state.history.length?`<h4 class="subheading">Caminhos anteriores</h4>${state.history.slice(-5).reverse().map(x=>`<div class="details-line">Caminho ${h(x.path)} · Ciclo ${h(x.cycle)} <span class="small">${h(x.date||'')}</span></div>`).join('')}`:''}</section><section class="card card-pad" style="margin-top:17px"><h3>Verificar fotos dos droids</h3><p class="small muted">Confira se as imagens dos 100 droids carregam na sua conexão. O teste não altera seu inventário.</p>${btn('Testar as 100 imagens','auditImages',{kind:'secondary'})}</section><section class="card card-pad" style="margin-top:17px"><h3>Privacidade e armazenamento</h3><p class="small muted">Os dados pessoais não são enviados ao Google Sheets nem ao GitHub. Eles ficam apenas no armazenamento deste navegador. Em outro aparelho, importe seu backup para continuar. Na navegação anônima ou após limpar dados do navegador, você pode perder informações sem backup.</p><div class="utility-bar">${btn('Conferir fonte dos requisitos','source',{kind:'ghost'})}${localStorage.getItem(ACCOUNTS_UNDO)?btn('Desfazer última restauração','undoRestore',{kind:'secondary'}):''}</div></section>`+footer();}
 function footer(){return `<footer class="footer-note">Referência comunitária: <a href="${h(DB.source)}" target="_blank" rel="noopener noreferrer">Droidex · 6 caminhos</a> e <a href="${h(DB.catalogSource)}" target="_blank" rel="noopener noreferrer">Droid Tycoon Helper · 100 droids e chips</a>. Base ${h(DB.version)}. Informações de progressão podem mudar com atualizações do jogo. “Pode Vender” não considera renda, coleção nem fusões.</footer>`}
-function render(){app.innerHTML=ui.tab==='dashboard'?dashboard():ui.tab==='search'?search():ui.tab==='inventory'?inventory():settings();document.querySelectorAll('[data-tab]').forEach(el=>{el.classList.toggle('active',el.dataset.tab===ui.tab);if(el.dataset.tab===ui.tab)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('top-breadcrumb').textContent={dashboard:'Meu caminho',search:'Consulta livre',inventory:'Meus droids',settings:'Configurações'}[ui.tab];renderModal();renderDetail();}
+function render(){if(storageError){app.innerHTML=`<div class="card card-pad"><h2>Armazenamento indisponível</h2><p>Não foi possível abrir suas contas: ${h(storageError)}. Seus dados antigos não foram apagados. Não faça novos cadastros neste momento; abra o site no navegador habitual ou restaure um backup em uma instalação funcional.</p></div>`;return}app.innerHTML=ui.tab==='dashboard'?dashboard():ui.tab==='search'?search():ui.tab==='inventory'?inventory():settings();accountHeader();document.querySelectorAll('[data-tab]').forEach(el=>{el.classList.toggle('active',el.dataset.tab===ui.tab);if(el.dataset.tab===ui.tab)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('top-breadcrumb').textContent={dashboard:'Meu caminho',search:'Consulta livre',inventory:'Meus droids',settings:'Configurações'}[ui.tab];renderModal();renderDetail();}
 function restoreInputFocus(id,position){const q=document.querySelector(`[data-input="${id}"]`);if(q){q.focus();if(q.setSelectionRange&&position!=null)try{q.setSelectionRange(position,position)}catch(e){}}}
 function openModal(kind,props={}){ui.modal={kind,...props};renderModal()}
 function modalWrap(title,subtitle,content,buttons){return `<div class="modal-backdrop" data-action="closeBackdrop"><div class="modal" role="dialog" aria-modal="true" aria-label="${h(title)}"><div class="modal-header"><div><h3>${h(title)}</h3><small>${h(subtitle||'')}</small></div><button class="close-btn" type="button" aria-label="Fechar" data-action="close">×</button></div><form id="modal-form" data-form="${h(ui.modal.kind)}"><div class="modal-body">${content}</div><div class="modal-footer">${btn('Cancelar','close',{kind:'ghost'})}${buttons}</div></form></div></div>`}
@@ -142,14 +205,28 @@ function renderDetail(){const root=document.getElementById('detail-root');if(!ro
 }
 
 function renderModal(){const root=document.getElementById('modal-root');const m=ui.modal;if(!m){root.innerHTML='';return};let title='',subtitle='',content='',buttons='';
- switch(m.kind){case 'add':{const d=byName[m.name];title=`Cadastrar ${m.name}`;subtitle='Informe o que você conseguiu no jogo.';content=`<div class="field"><label>Variante</label>${tierSelect(d?.rarity==='Iconic'?'Única':'Default',d?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade</label><input class="input" type="number" name="qty" min="1" max="100000" value="1" required></div>`;buttons=`<button class="btn" type="submit">Salvar droid</button>`;break}
+ switch(m.kind){case 'createAccount':{title='Adicionar conta';subtitle='Os dados desta conta serão independentes.';content='<div class="field"><label for="account-name">Nome da nova conta</label><input id="account-name" class="input" name="name" maxlength="40" placeholder="Ex.: Minha segunda conta" required></div><p class="mini-note">Você poderá mudar o nome depois.</p>';buttons='<button class="btn" type="submit">Criar e usar conta</button>';break}
+ case 'renameAccount':{const a=accountsDb.accounts.find(a=>a.id===m.id);if(!a){ui.modal=null;root.innerHTML='';return}title='Renomear conta';subtitle=a.name;content=`<div class="field"><label>Nome da conta</label><input class="input" name="name" maxlength="40" value="${h(a.name)}" required></div>`;buttons='<button class="btn" type="submit">Salvar novo nome</button>';break}
+ case 'deleteAccount':{const a=accountsDb.accounts.find(a=>a.id===m.id);if(!a){ui.modal=null;root.innerHTML='';return}title='Excluir conta';subtitle=a.name;content=`<p>Esta ação apagará o inventário, progresso, histórico e avisos desta conta neste navegador. As demais contas não serão apagadas.</p><div class="hint"><strong>Recomendamos exportar o backup de todas as contas antes.</strong> A exclusão não tem botão de desfazer.</div><div class="field" style="margin-top:15px"><label>Digite <strong>${h(a.name)}</strong> para confirmar</label><input class="input" name="confirmName" autocomplete="off" required></div>`;buttons='<button class="btn danger" type="submit">Excluir conta definitivamente</button>';break}
+ case 'add':{const d=byName[m.name];title=`Cadastrar ${m.name}`;subtitle='Informe o que você conseguiu no jogo.';content=`<div class="field"><label>Variante</label>${tierSelect(d?.rarity==='Iconic'?'Única':'Default',d?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade</label><input class="input" type="number" name="qty" min="1" max="100000" value="1" required></div>`;buttons=`<button class="btn" type="submit">Salvar droid</button>`;break}
  case 'edit':{title=`Editar ${m.name}`;subtitle=`Variante atual: ${variantLabel(m.tier)}`;content=`<div class="field"><label>Variante</label>${tierSelect(m.tier,byName[m.name]?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade total</label><input class="input" type="number" min="1" max="100000" name="qty" value="${state.inventory[m.name]?.[m.tier]||0}" required></div><div class="hint">Editar corrige o cadastro. Não registra venda nem consumo de chips.</div>`;buttons=`${btn('Excluir cadastro','delete',{kind:'danger'})}<button class="btn" type="submit">Salvar alterações</button>`;break}
  case 'evolve':{const options=T.slice(rank(m.tier)+1);title=`Evoluí ${m.name}`;subtitle=`Variante atual: ${variantLabel(m.tier)}`;content=`<div class="field"><label>Variante alcançada</label><select class="select" name="tier" id="evolve-tier" data-input="evolveDestination">${selects(options.map(value=>({value,label:variantLabel(value)})),ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0])}</select></div><div class="field"><label>Quantidade evoluída (máx. ${state.inventory[m.name]?.[m.tier]||0})</label><input class="input" name="qty" min="1" max="${state.inventory[m.name]?.[m.tier]||0}" type="number" value="1" required></div><div class="hint">Chips para uma unidade: <strong class="chip-highlight" id="evolve-cost">${nf(chips(m.name,m.tier,ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0]))}</strong>. O aplicativo apenas registra a evolução feita no jogo.</div>`;buttons=`<button class="btn" type="submit">Confirmar evolução</button>`;break}
  case 'sale':{title=`Vendido: ${m.name}`;subtitle=`${variantLabel(m.tier)} · ${m.max} unidade(s) liberada(s)`;content=`<div class="field"><label>Quantidade vendida</label><input class="input" name="qty" min="1" max="${m.max}" type="number" value="1" required></div><div class="hint"><strong>Importante:</strong> “Pode Vender” é uma indicação de progressão. A decisão de vender pode afetar renda, coleção ou fusão.</div>`;buttons=`<button class="btn" type="submit">Registrar venda</button>`;break}
  case 'cycle':{title='Corrigir meu ciclo';subtitle=`Caminho ${state.path}`;content=`<div class="field"><label>Ciclo em que está atualmente</label><select class="select" name="cycle">${selects(Array.from({length:40},(_,i)=>({label:`Ciclo ${i+1}`,value:i+1})),state.cycle)}</select></div><div class="hint">O inventário será preservado e as recomendações recalculadas. Ciclos pulados não serão marcados automaticamente como concluídos.</div>`;buttons=`<button class="btn" type="submit">Confirmar novo ciclo</button>`;break}
  case 'advance':{const bad=stageBuckets();title=state.cycle===40?'Concluir o caminho':'Avançar de ciclo';subtitle=`Caminho ${state.path} · Ciclo ${state.cycle}`;content=`<p>${(bad.confirmed.length+bad.unknown.length)?`Ainda existem <strong>${(bad.confirmed.length+bad.unknown.length)} pendência(s)</strong> no cadastro. Você pode avançar se já concluiu a etapa dentro do jogo.`:'Todos os requisitos constam como atendidos no cadastro.'}</p><div class="hint">Seus droids serão preservados. Confirme somente se concluiu esse ciclo no jogo.</div>`;buttons=`<button class="btn" type="submit">${state.cycle===40?'Registrar conclusão':'Confirmar avanço'}</button>`;break}
  case 'changePath':{title='Trocar de caminho';subtitle='Esta ação reiniciará o inventário ativo.';content=`<div class="field"><label>Novo caminho</label><select class="select" name="path">${selects(Array.from({length:6},(_,i)=>({value:i+1,label:`Caminho ${i+1}`})).filter(a=>a.value!==state.path),state.path===1?2:1)}</select></div><div class="hint"><strong>Atenção:</strong> o inventário atual será arquivado em uma cópia de segurança e zerado no novo caminho. O histórico resumido será mantido.</div>`;buttons=`<button class="btn danger" type="submit">Confirmar mudança</button>`;break}
- case 'restore':{title='Restaurar backup';subtitle='Substituição protegida';const d=m.preview;content=`<div class="details-list"><div class="details-line"><span>Caminho / Ciclo</span><b>${d.path||'Não configurado'} / ${d.cycle}</b></div><div class="details-line"><span>Droids cadastrados</span><b>${arrInventory(d).reduce((a,b)=>a+b.qty,0)}</b></div><div class="details-line"><span>Data de salvamento</span><b>${new Date(d.lastModified).toLocaleDateString('pt-BR')}</b></div></div><div class="hint" style="margin-top:16px">Seu inventário e progresso atuais serão substituídos após confirmação. Uma cópia anterior ficará disponível para desfazer.</div>`;buttons=`<button class="btn danger" type="submit">Restaurar este backup</button>`;break}
+ case 'restore':{
+  title='Importar backup';const d=m.preview;
+  if(m.format==='multi'){
+   subtitle='Backup completo com todas as contas';
+   content=`<p>Este arquivo contém <strong>${d.accounts.length} conta(s)</strong>:</p><div class="restore-account-list">${d.accounts.map(a=>`<div class="details-line"><strong>${h(a.name)}</strong><span>Caminho ${a.data.path||'—'} · ${nf(arrInventory(a.data).reduce((n,e)=>n+e.qty,0))} droids</span></div>`).join('')}</div><div class="hint"><strong>Atenção:</strong> esta operação vai substituir TODAS as contas existentes neste navegador pelas contas do arquivo. Uma cópia dos dados atuais será preservada para desfazer.</div>`;
+   buttons='<button class="btn danger" type="submit">Substituir todas as contas</button>';
+  }else{
+   subtitle='Backup antigo de uma conta';const proposed=uniqueImportName();
+   content=`<div class="details-list"><div class="details-line"><span>Caminho / Ciclo</span><b>${d.path||'Não configurado'} / ${d.cycle}</b></div><div class="details-line"><span>Droids cadastrados</span><b>${arrInventory(d).reduce((a,b)=>a+b.qty,0)}</b></div></div><div class="field" style="margin-top:16px"><label>Nome da conta importada</label><input class="input" maxlength="40" name="name" value="${h(proposed)}" required></div><div class="hint">Este backup será importado como uma NOVA conta. Suas contas atuais serão preservadas.</div>`;
+   buttons='<button class="btn" type="submit">Criar conta com este backup</button>';
+  }break;
+ }
  case 'auditImages':{title='Verificar imagens dos droids';subtitle='Conferência dos 100 droids do catálogo';content='<p class="small muted">Este teste tenta carregar cada foto no seu navegador. Uma falha pode ser causada pela conexão, por bloqueio do site da imagem ou por arquivo inexistente.</p><div class="image-audit-summary" id="image-audit-summary" role="status">Preparando teste...</div><div class="image-audit-track" aria-hidden="true"><div id="image-audit-fill"></div></div><div id="image-audit-errors" class="image-audit-errors"></div>';buttons=`${btn('Testar novamente','restartImageAudit',{kind:'secondary'})}${btn('Copiar falhas','copyImageIssues',{kind:'ghost'})}`;break}
  case 'delete':{title=`Excluir ${m.name}`;subtitle=`Variante ${variantLabel(m.tier)}`;content='<p>Deseja realmente excluir este cadastro? Se foi uma venda, use o botão “Vendido” na lista de excedentes.</p>';buttons='<button class="btn danger" type="submit">Excluir</button>';break}
  default:root.innerHTML='';return;
@@ -192,7 +269,7 @@ async function runImageAudit(){
 }
 function mutateInventory(name,tier,delta){if(!validName(name)||!validTier(name,tier))return;const tiers=(state.inventory[name]??={});tiers[tier]=Math.max(0,(tiers[tier]||0)+delta);if(!tiers[tier])delete tiers[tier];if(!Object.keys(tiers).length)delete state.inventory[name];if(delta>0)delete state.absent[name]}
 function nInt(value,min,max){const x=Number(value);return Number.isSafeInteger(x)&&x>=min&&x<=max?x:null}
-function exportBackup(){const now=new Date().toISOString().slice(0,10),blob=new Blob([JSON.stringify({...state,saleNotices:unreadNotices,exportedAt:new Date().toISOString(),app:'Droid Tycoon'},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`droid-tycoon-backup-${now}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);notify('Backup exportado. Guarde o arquivo em local seguro.');}
+function exportBackup(){if(!writeAccounts())return;const now=new Date().toISOString().slice(0,10),blob=new Blob([JSON.stringify({...accountsDb,exportedAt:new Date().toISOString(),app:'Droid Tycoon'},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`droid-tycoon-todas-contas-${now}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);notify('Backup de todas as contas exportado. Guarde o arquivo em local seguro.');}
 function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData(form);const qty=nInt(vals.get('qty'),1,100000);let text='';switch(m.kind){
  case 'add':{const tier=String(vals.get('tier'));if(!qty||!validTier(m.name,tier))return notify('Informe uma variante e quantidade válidas.');save(()=>mutateInventory(m.name,tier,qty),`${m.name} cadastrado.`);break}
  case 'edit':{const tier=String(vals.get('tier'));if(!qty||!validTier(m.name,tier))return notify('Informe dados válidos.');save(()=>{const old=state.inventory[m.name]?.[m.tier]||0;mutateInventory(m.name,m.tier,-old);mutateInventory(m.name,tier,qty)},'Cadastro atualizado.');break}
@@ -201,11 +278,52 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
  case 'cycle':{const cycle=nInt(vals.get('cycle'),1,40);if(!cycle)return;save(()=>{state.cycle=cycle},`Ciclo atualizado para ${cycle}.`);break}
  case 'advance':{const final=state.cycle===40;if(final&&state.completed.some(x=>x.path===state.path&&x.cycle===40))return;save(()=>{state.completed.push({path:state.path,cycle:state.cycle});if(final){state.history.push({path:state.path,cycle:40,date:new Date().toLocaleDateString('pt-BR'),finished:true,inventory:JSON.parse(JSON.stringify(state.inventory))});state.history=state.history.slice(-30)}else state.cycle++},final?'Caminho concluído!':'Ciclo atualizado.');break}
  case 'changePath':{const p=nInt(vals.get('path'),1,6);if(!p||p===state.path)return;try{localStorage.setItem(RESTORE,JSON.stringify(state))}catch(e){};save(()=>{state.history.push({path:state.path,cycle:state.cycle,date:new Date().toLocaleDateString('pt-BR'),inventory:JSON.parse(JSON.stringify(state.inventory))});state.path=p;state.cycle=1;state.inventory={};state.absent={};state.completed=[];state.sales=[];state.history=state.history.slice(-30)},`Caminho ${p} iniciado. Inventário reiniciado.`);ui.open=new Set(['pending']);break}
- case 'restore':{try{localStorage.setItem(RESTORE,JSON.stringify(state))}catch(e){return notify('Não foi possível criar cópia de segurança antes da restauração.')};undo=()=>{state=sanitize(JSON.parse(localStorage.getItem(RESTORE)));persist();render()};state=sanitize(m.preview);unreadNotices={};storeNotices();persist();ui.tab=state.path?'dashboard':'search';render();notify('Backup restaurado. É possível desfazer nas configurações.',true);break}
+ case 'createAccount':{
+  const name=validAccountName(vals.get('name'));if(!name||!nameAvailable(name))return notify('Use um nome diferente, com até 40 caracteres.');
+  if(!writeAccounts())return;
+  const a={id:newId(),name,data:empty(),notices:{}};accountsDb.accounts.push(a);
+  if(!writeAccounts()){accountsDb.accounts.pop();return}
+  activateAccount(a.id);notify('Conta '+name+' criada. Configure seu caminho quando quiser.');break;
+ }
+ case 'renameAccount':{
+  const target=accountsDb.accounts.find(a=>a.id===m.id),name=validAccountName(vals.get('name'));
+  if(!target||!name||!nameAvailable(name,m.id))return notify('Escolha um nome válido e não utilizado.');
+  const before=target.name;target.name=name;
+  if(!writeAccounts()){target.name=before;return}
+  notify('Conta renomeada para '+name+'.');break;
+ }
+ case 'deleteAccount':{
+  const target=accountsDb.accounts.find(a=>a.id===m.id);
+  if(!target||accountsDb.accounts.length<=1)return notify('É necessário manter pelo menos uma conta.');
+  if(String(vals.get('confirmName')||'').trim()!==target.name)return notify('Digite exatamente o nome da conta para confirmar.');
+  if(!writeAccounts())return;
+  const previous=accountsDb;
+  const remaining=accountsDb.accounts.filter(a=>a.id!==target.id);
+  accountsDb={...accountsDb,accounts:remaining,activeId:target.id===accountsDb.activeId?remaining[0].id:accountsDb.activeId};
+  if(!saveAccountsBlob()){accountsDb=previous;return}
+  resetAccountView();notify('Conta excluída: '+target.name+'.');break;
+ }
+ case 'restore':{
+  if(!writeAccounts()||!saveUndoSnapshot())return;
+  const previous=accountsDb;
+  if(m.format==='multi')accountsDb=sanitizeAccounts(m.preview);
+  else {
+   const name=validAccountName(vals.get('name'));
+   if(!name||!nameAvailable(name))return notify('Escolha um nome novo para a conta importada.');
+   const a={id:newId(),name,data:sanitize(m.preview),notices:sanitizeNotices(m.legacyNotices)};
+   accountsDb={...accountsDb,accounts:[...accountsDb.accounts,a],activeId:a.id};
+  }
+  if(!saveAccountsBlob()){accountsDb=previous;resetAccountView();return}
+  resetAccountView();ui.tab=state.path?'dashboard':'search';notify('Backup importado. Você pode desfazer nas configurações.');break;
+ }
  case 'delete':{save(()=>{const n=state.inventory[m.name]?.[m.tier]||0;mutateInventory(m.name,m.tier,-n)},'Cadastro excluído.');break}
  }ui.modal=null;render();}
 function handleAction(button){const a=button.dataset.action,n=button.dataset.name,t=button.dataset.tier;
  switch(a){
+ case 'createAccount':openModal('createAccount');break;
+ case 'renameAccount':openModal('renameAccount',{id:button.dataset.id});break;
+ case 'deleteAccount':openModal('deleteAccount',{id:button.dataset.id});break;
+ case 'activateAccount':activateAccount(button.dataset.id);break;
  case 'expand':ui.open.has(button.dataset.id)?ui.open.delete(button.dataset.id):ui.open.add(button.dataset.id);render();break;
  case 'choosepath':ui.setupPath=Number(button.dataset.path);render();break;
  case 'start':save(()=>{state.path=ui.setupPath;state.cycle=ui.setupCycle},'Seu caminho está configurado.');ui.tab='dashboard';render();break;
@@ -239,7 +357,7 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
    break;
  }
  case 'source':window.open(DB.source,'_blank','noopener,noreferrer');break;
- case 'undoRestore':{try{const old=sanitize(JSON.parse(localStorage.getItem(RESTORE)));localStorage.setItem(RESTORE,JSON.stringify(state));state=old;persist();render();notify('Estado anterior restaurado.')}catch(e){notify('Não foi possível desfazer a restauração.')}}break;
+ case 'undoRestore':restoreAccountsSnapshot();break;
  case 'prevBrowse':ui.browseCycle=Math.max(1,ui.browseCycle-1);render();break;case 'nextBrowse':ui.browseCycle=Math.min(40,ui.browseCycle+1);render();break;
  }
 }
@@ -250,14 +368,14 @@ document.addEventListener('input',e=>{const input=e.target.dataset.input;if(!inp
  if(input==='batchQty'){const name=e.target.dataset.name;const qty=Number(e.target.value);if(ui.batch[name]&&qty>=1)ui.batch[name].qty=qty}
  });
 document.addEventListener('change',e=>{const inp=e.target.dataset.input;if(!inp)return;const value=e.target.value;
- switch(inp){case 'setupCycle':ui.setupCycle=Number(value);break;case 'browsePath':ui.browsePath=Number(value);render();break;case 'browseCycle':ui.browseCycle=Number(value);render();break;case 'pathFilter':ui.pathFilter=Number(value);if(ui.detail)renderDetail();else render();break;
+ switch(inp){case 'activeAccount':activateAccount(value);break;case 'setupCycle':ui.setupCycle=Number(value);break;case 'browsePath':ui.browsePath=Number(value);render();break;case 'browseCycle':ui.browseCycle=Number(value);render();break;case 'pathFilter':ui.pathFilter=Number(value);if(ui.detail)renderDetail();else render();break;
  case 'chipFrom':ui.chipFrom=value;if(ui.detail)renderDetail();else render();break;case 'chipTo':ui.chipTo=value;if(ui.detail)renderDetail();else render();break;
  case 'catalogRarity':ui.catalogRarity=value;render();break;
  case 'batchToggle':{const n=e.target.dataset.name;if(e.target.checked){ui.batch[n]={tier:byName[n].rarity==='Iconic'?'Única':'Default',qty:1}}else delete ui.batch[n];render();break}
  case 'batchTier':if(ui.batch[e.target.dataset.name])ui.batch[e.target.dataset.name].tier=value;break;
  case 'evolveDestination':ui.evolveDestination=value;document.getElementById('evolve-cost').textContent=nf(chips(ui.modal.name,ui.modal.tier,value));break;
  }});
-document.getElementById('backup-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;if(file.size>3e6)return notify('Arquivo muito grande para um backup pessoal.');try{const raw=JSON.parse(await file.text());openModal('restore',{preview:sanitize(raw)})}catch(err){notify(`Backup inválido: ${err.message}`)}});
+document.getElementById('backup-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;if(file.size>10e6)return notify('Arquivo de backup muito grande (máximo de 10 MB).');try{const raw=JSON.parse(await file.text());if(raw?.schema===2)openModal('restore',{format:'multi',preview:sanitizeAccounts(raw)});else openModal('restore',{format:'legacy',preview:sanitize(raw),legacyNotices:sanitizeNotices(raw.saleNotices)});}catch(err){notify(`Backup inválido: ${err.message}`)}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(ui.modal){ui.modal=null;renderModal()}else if(ui.detail){ui.detail='';renderDetail()}}});
 document.addEventListener('load',e=>{if(e.target.matches?.('img[data-site-logo]'))e.target.parentElement.classList.add('logo-loaded')},true);
 document.querySelectorAll('img[data-site-logo]').forEach(img=>{if(img.complete&&img.naturalWidth)img.parentElement.classList.add('logo-loaded');else if(img.complete&&img.naturalWidth===0){img.hidden=true;img.parentElement.classList.add('logo-failed')}});

@@ -254,3 +254,37 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .image-audit-errors li b{color:var(--text)}
 .image-audit-errors a{color:var(--primary);text-decoration:underline}
 .image-audit-errors .audit-success{color:#a3eec8}
+
+/* v6 — múltiplas contas, seletor presente em todas as telas */
+.topbar-right{display:flex;align-items:center;gap:9px;min-width:0}
+.account-switcher{display:flex;align-items:center;gap:7px;min-width:0}
+.account-switcher label{font-size:9px;color:#9aafc6;font-weight:800;letter-spacing:.7px;white-space:nowrap}
+.account-select{width:clamp(135px,17vw,240px);min-width:0;max-width:100%;background:#152943;color:#e9f7ff;border:1px solid #416381;border-radius:10px;padding:9px 28px 9px 10px;font-size:12px;font-weight:800;text-overflow:ellipsis;cursor:pointer}
+.account-select:focus-visible,.account-add:focus-visible{outline:2px solid #77e6ec;outline-offset:2px}
+.account-add{border:1px solid #416381;border-radius:10px;background:#164351;color:#defcff;width:34px;height:36px;font-size:23px;font-weight:700;flex:0 0 34px;cursor:pointer}
+.account-add:hover{background:#205e67}
+.account-settings{margin-bottom:0}
+.account-list{display:grid;gap:9px;margin:17px 0 12px}
+.account-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;background:#102238;border:1px solid #29435e;border-radius:13px}
+.account-current{border-color:#448b93;background:#153342}
+.account-row-info{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px;min-width:0}
+.account-row-info strong{font-size:13px;overflow-wrap:anywhere}
+.account-row-info small{flex-basis:100%;color:#9eb2ca;font-size:11px}
+.account-active-tag{display:inline-block;border-radius:99px;background:#205c58;color:#aef8e2;padding:3px 7px;font-size:10px;font-weight:700}
+.account-row-buttons{display:flex;gap:5px;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}
+.account-row-buttons .btn{padding:7px 9px;font-size:11px}
+.restore-account-list{display:grid;gap:7px;margin-bottom:16px;max-height:210px;overflow:auto}
+.restore-account-list .details-line{gap:10px;flex-wrap:wrap}
+.restore-account-list .details-line span{font-size:11px}
+@media(max-width:760px){
+ .topbar{gap:7px}
+ .topbar-left{display:none}
+ .topbar-right{margin-left:auto;gap:6px}
+ .account-switcher label{display:none}
+ .account-select{width:clamp(115px,36vw,185px);font-size:11px;padding:8px 24px 8px 9px}
+ .account-add{width:29px;height:33px;flex-basis:29px;font-size:20px}
+ .topbar-right .online-pill{display:none}
+ .account-row{flex-direction:column;align-items:stretch}
+ .account-row-buttons{justify-content:flex-start}
+}
+@media(max-width:365px){.mobile-logo .site-logo{max-width:100px}.account-select{width:110px}.topbar-right .icon-btn{display:none}}
