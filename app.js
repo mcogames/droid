@@ -17,7 +17,7 @@ const variantLabel=tier=>VARIANT_PT[tier]||tier||'';
 const IMAGE_ROOT='https://droidtycoonhelper.com/img/droids/';
 // Fotos com endereço específico, sem mudar nome, raridade, variante ou banco de dados.
 const IMAGE_OVERRIDES=Object.freeze({
- 'UTIL-TEC':'https://static.wikia.nocookie.net/star-wars-droid-tycoon/images/8/82/Util-Tec_Main.png/revision/latest?cb=20260829221454'
+ 'UTIL-TEC':'https://static.wikia.nocookie.net/star-wars-droid-tycoon/images/8/82/Util-Tec_Main.png'
 });
 const slug=name=>String(name).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\([^)]*\)/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const imageUrl=name=>IMAGE_OVERRIDES[name]||`${IMAGE_ROOT}${encodeURIComponent(slug(name))}.webp`;
