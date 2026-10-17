@@ -548,3 +548,6 @@ select.variant-select option{background:#111f32;color:#e0e8f2}
   .variant-pill[data-variant]{font-size:12px}
   .path-need[data-variant] b,.owned-variant[data-variant]{font-size:11px}
 }
+
+/* Backup por nome: permitir quebra de textos e identificação de conflitos */
+.restore-account-list .details-line{align-items:center;flex-wrap:wrap;gap:9px}.restore-account-list .details-line>div{min-width:0;flex:1}.restore-account-list strong{overflow-wrap:anywhere}.restore-account-list .badge{white-space:normal}
