@@ -7,7 +7,7 @@
   <meta name="description" content="Droid Tycoon: consulte os seis caminhos, acompanhe seus droids e descubra o que guardar ou vender." />
   <title>Droid Tycoon — Guia de Progressão</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
 <body>
   <div class="layout">
@@ -17,6 +17,8 @@
       <nav class="nav-items" id="side-nav" aria-label="Navegação principal">
         <button type="button" data-tab="dashboard" class="nav-item"><span class="nav-symbol">◫</span><span>Meu caminho</span></button>
         <button type="button" data-tab="search" class="nav-item"><span class="nav-symbol">⌕</span><span>Consultar droids</span></button>
+        <button type="button" data-tab="pathlist" class="nav-item"><span class="nav-symbol">☷</span><span>Lista do caminho</span></button>
+        <button type="button" data-tab="fusion" class="nav-item"><span class="nav-symbol">⚗</span><span>Fusões especiais</span></button>
         <button type="button" data-tab="inventory" class="nav-item"><span class="nav-symbol">▣</span><span>Meus droids</span></button>
         <button type="button" data-tab="settings" class="nav-item"><span class="nav-symbol">⚙</span><span>Configurações</span></button>
       </nav>
@@ -32,6 +34,7 @@
   <nav class="bottom-nav" aria-label="Navegação móvel">
     <button type="button" data-tab="dashboard"><span aria-hidden="true">⌂</span>Início</button>
     <button type="button" data-tab="search"><span aria-hidden="true">⌕</span>Consultar</button>
+    <button type="button" data-tab="fusion"><span aria-hidden="true">⚗</span>Fusões</button>
     <button type="button" data-tab="inventory"><span aria-hidden="true">▣</span>Meus Droids</button>
   </nav>
   <div id="detail-root"></div>
@@ -39,6 +42,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <input type="file" id="backup-file" accept=".json,application/json" hidden />
   <script src="data.js"></script>
-  <script src="app.js?v=6" defer></script>
+  <script src="app.js?v=9" defer></script>
 </body>
 </html>
