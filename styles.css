@@ -414,3 +414,10 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .fusion-unavailable{display:block;margin-top:7px;color:#e5b2b2!important}
 .fusion-safety-note{margin-top:12px!important}
 @media(max-width:760px){.search-droid-warnings>span{font-size:9px}.fusion-related{padding:11px}.fusion-related-buttons .btn{font-size:11px}}
+
+/* v10: retirada do inventário com identificação distinta da venda */
+.drawer-remove-line{display:flex;justify-content:flex-start;margin:3px 0 9px}
+.drawer-remove-line .inventory-remove-btn{border-color:#6d4a52;color:#ffbdc2;background:rgba(91,39,50,.18);font-weight:700}
+.drawer-remove-line .inventory-remove-btn:hover{background:rgba(116,49,64,.32);border-color:#ae6472}
+.removal-warning{border-color:#6d513b;background:rgba(81,57,34,.23);margin-top:10px}
+.removal-history .details-line{margin-top:7px}
