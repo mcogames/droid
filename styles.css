@@ -445,3 +445,19 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
  .base-owned-row .quantities{font-size:9px}
 }
 @media(max-width:385px){.base-quick-actions{flex-basis:88px}.base-sell-one{padding:9px 8px;font-size:10px}.base-owned-row .droid-thumb{width:40px;height:40px;flex-basis:40px}}
+
+/* v13 — ciclo futuro em destaque sem alterar a altura nem a estrutura das linhas */
+.droid-entry .future-cycle-emphasis{
+ color:#ffd792;
+ font-size:13px;
+ font-weight:900;
+ letter-spacing:.12px;
+ line-height:1.45;
+}
+.droid-entry .future-cycle-number{color:#ffedbd;font-size:14px;font-variant-numeric:tabular-nums}
+.droid-entry .future-variant-text{color:#c5d0de;font-size:11px;font-weight:550}
+.droid-entry .future-line .future-variant-text{color:#eac89c}
+@media(max-width:760px){
+ .droid-entry .future-cycle-emphasis{font-size:12px}
+ .droid-entry .future-cycle-number{font-size:13px}
+}
