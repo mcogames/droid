@@ -461,3 +461,90 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
  .droid-entry .future-cycle-emphasis{font-size:12px}
  .droid-entry .future-cycle-number{font-size:13px}
 }
+
+
+/* v15 — nomes das variantes: hierarquia visual maior em todas as telas.
+   Cor da variante != cor da raridade. Não altera categorias nem imagens. */
+.variant-name,
+.variant-token,
+.variant-pill,
+.owned-variant,
+.variant-select{
+  --variant-fg:#d4dce8;
+  color:var(--variant-fg);
+  font-weight:850;
+}
+.variant-name{display:inline;font-size:1.1em;line-height:1.35;white-space:normal;letter-spacing:.06px}
+.variant-name[data-variant="Default"],
+.variant-token[data-variant="Default"],
+.variant-pill[data-variant="Default"],
+.path-need[data-variant="Default"],
+.owned-variant[data-variant="Default"],
+.variant-select[data-variant="Default"]{--variant-fg:#d1dce8}
+.variant-name[data-variant="Gold"],
+.variant-token[data-variant="Gold"],
+.variant-pill[data-variant="Gold"],
+.path-need[data-variant="Gold"],
+.owned-variant[data-variant="Gold"],
+.variant-select[data-variant="Gold"]{--variant-fg:#ffe078}
+.variant-name[data-variant="Diamond"],
+.variant-token[data-variant="Diamond"],
+.variant-pill[data-variant="Diamond"],
+.path-need[data-variant="Diamond"],
+.owned-variant[data-variant="Diamond"],
+.variant-select[data-variant="Diamond"]{--variant-fg:#90e7ff}
+.variant-name[data-variant="Rainbow"],
+.variant-token[data-variant="Rainbow"],
+.variant-pill[data-variant="Rainbow"],
+.path-need[data-variant="Rainbow"],
+.owned-variant[data-variant="Rainbow"],
+.variant-select[data-variant="Rainbow"]{--variant-fg:#ffb6e8}
+.variant-name[data-variant="Beskar"],
+.variant-token[data-variant="Beskar"],
+.variant-pill[data-variant="Beskar"],
+.path-need[data-variant="Beskar"],
+.owned-variant[data-variant="Beskar"],
+.variant-select[data-variant="Beskar"]{--variant-fg:#d5e4ed}
+.variant-name[data-variant="Galactic"],
+.variant-token[data-variant="Galactic"],
+.variant-pill[data-variant="Galactic"],
+.path-need[data-variant="Galactic"],
+.owned-variant[data-variant="Galactic"],
+.variant-select[data-variant="Galactic"]{--variant-fg:#cca1ff}
+.variant-name[data-variant="Stellar"],
+.variant-token[data-variant="Stellar"],
+.variant-pill[data-variant="Stellar"],
+.path-need[data-variant="Stellar"],
+.owned-variant[data-variant="Stellar"],
+.variant-select[data-variant="Stellar"]{--variant-fg:#ffcf82}
+.variant-name[data-variant="Kyber"],
+.variant-token[data-variant="Kyber"],
+.variant-pill[data-variant="Kyber"],
+.path-need[data-variant="Kyber"],
+.owned-variant[data-variant="Kyber"],
+.variant-select[data-variant="Kyber"]{--variant-fg:#85edff}
+.variant-name[data-variant="Única"],
+.variant-token[data-variant="Única"],
+.variant-pill[data-variant="Única"],
+.path-need[data-variant="Única"],
+.owned-variant[data-variant="Única"],
+.variant-select[data-variant="Única"]{--variant-fg:#ffc3e9}
+/* Especificidade intencional para superar as cores antigas dos rótulos. */
+.variant-name[data-variant]{color:var(--variant-fg)}
+.variant-token[data-variant]{color:var(--variant-fg);font-size:12px;padding:3px 8px;line-height:1.3}
+.variant-pill[data-variant]{color:var(--variant-fg);font-size:12px;font-weight:850}
+.path-need{--variant-fg:#d4dce8}
+.path-need[data-variant] b{color:var(--variant-fg);font-size:12px;line-height:1.35;font-weight:850}
+.owned-variant[data-variant]{color:var(--variant-fg);font-size:12px;line-height:1.35}
+select.variant-select[data-variant]{color:var(--variant-fg);font-size:13px;font-weight:800}
+select.variant-select option{background:#111f32;color:#e0e8f2}
+.droid-entry .future-variant-text{font-size:12px;color:#b9c9db;font-weight:600}
+.droid-entry .future-line .future-variant-text{color:#b9c9db}
+.requirement-entry .entry-sub{font-size:12px;line-height:1.65}
+.fusion-result .variant-name{font-size:1.1em}
+.notice-row .variant-name{font-size:1.07em}
+@media(max-width:420px){
+  .variant-token[data-variant]{font-size:11px;padding:3px 6px}
+  .variant-pill[data-variant]{font-size:12px}
+  .path-need[data-variant] b,.owned-variant[data-variant]{font-size:11px}
+}
