@@ -421,3 +421,27 @@ body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .drawer-remove-line .inventory-remove-btn:hover{background:rgba(116,49,64,.32);border-color:#ae6472}
 .removal-warning{border-color:#6d513b;background:rgba(81,57,34,.23);margin-top:10px}
 .removal-history .details-line{margin-top:7px}
+
+/* v11 — Minha Base: somente itens atuais, venda rápida e cadastro recolhido */
+.base-owned-row{display:flex;align-items:center;gap:11px;justify-content:space-between;min-width:0}
+.base-owned-row>.droid-open{flex:1 1 auto;min-width:0;width:auto}
+.base-owned-row .droid-info{min-width:0}
+.base-quick-actions{flex:0 0 128px;display:grid;justify-items:end;gap:6px;text-align:right}
+.base-sell-one{border:1px solid #468970;border-radius:10px;background:#174d40;color:#b7ffdb;padding:11px 15px;font-size:12px;font-weight:850;cursor:pointer;white-space:nowrap;min-height:42px;touch-action:manipulation}
+.base-sell-one:hover{background:#236956;border-color:#6fc5a1}
+.base-sell-one:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+.base-risk{font-size:10px;font-weight:700;color:#f6cf99;max-width:132px;line-height:1.35}
+.base-undo-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border:1px solid #3e7f67;border-radius:12px;background:#173b33;padding:11px 13px;margin:12px 0;font-size:12px;color:#b5ffe0}
+.base-catalog-trigger{border-top:1px solid var(--line);margin-top:13px;padding-top:17px;display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.base-catalog-trigger .mini-note{flex:1 1 210px}
+.base-own-card>.mini-note{margin-top:10px;line-height:1.6}
+@media(max-width:760px){
+ .base-owned-row{gap:8px}
+ .base-quick-actions{flex-basis:105px}
+ .base-sell-one{padding:10px 12px;font-size:11px}
+ .base-risk{font-size:9px;max-width:115px}
+ .base-owned-row .droid-thumb{width:45px;height:45px;flex-basis:45px}
+ .base-owned-row .droid-heading{font-size:12px}
+ .base-owned-row .quantities{font-size:9px}
+}
+@media(max-width:385px){.base-quick-actions{flex-basis:88px}.base-sell-one{padding:9px 8px;font-size:10px}.base-owned-row .droid-thumb{width:40px;height:40px;flex-basis:40px}}
