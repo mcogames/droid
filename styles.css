@@ -551,3 +551,28 @@ select.variant-select option{background:#111f32;color:#e0e8f2}
 
 /* Backup por nome: permitir quebra de textos e identificação de conflitos */
 .restore-account-list .details-line{align-items:center;flex-wrap:wrap;gap:9px}.restore-account-list .details-line>div{min-width:0;flex:1}.restore-account-list strong{overflow-wrap:anywhere}.restore-account-list .badge{white-space:normal}
+
+/* v19: busca unificada na Base e fusões inteligentes. */
+.base-scope-switch{display:flex;gap:5px;background:#0e1e30;border:1px solid #38516b;border-radius:12px;padding:5px;margin:15px 0 13px}
+.base-scope-switch button{flex:1;min-width:0;padding:11px 9px;border:1px solid transparent;border-radius:9px;background:transparent;color:#b7cbdb;font-weight:800;cursor:pointer}
+.base-scope-switch button.on{color:#a3f1d6;background:#214940;border-color:#437b6b;box-shadow:0 2px 14px #0003}
+.base-search-label{font-size:11px;letter-spacing:1px;font-weight:800;color:#a8bfd4;display:block;margin:0 0 6px}
+.base-unified-search{margin-bottom:12px}.base-result-count{margin:12px 0 6px;font-weight:700}
+.base-catalog-result{display:flex;gap:12px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding:13px 0}
+.base-catalog-result:last-child{border-bottom:0}
+.base-catalog-result>.btn{flex-shrink:0}
+.base-catalog-result>.droid-open{min-width:0;flex:1}
+.base-fusion-panel{margin-top:18px}
+.smart-fusion-subtitle{font-size:14px;margin:18px 0 10px}
+.smart-fusion-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.smart-fusion-card{min-width:0;background:#12243a;border:1px solid #34516c;border-radius:13px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.smart-fusion-reserved{border-color:#428269;background:#18352e}
+.smart-fusion-meta{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px}
+.smart-fusion-parts{font-size:12px;line-height:1.7;overflow-wrap:anywhere;color:#e2eaf3}
+.smart-fusion-outcome{font-size:13px;font-weight:800;color:#afe6d4}
+.smart-fusion-outcome .variant-name{font-weight:850}
+.smart-fusion-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+.smart-fusion-actions .btn{white-space:normal;flex:1;min-width:130px}
+.fusion-plus{color:#81a9ba;padding:0 2px}
+@media(max-width:760px){.smart-fusion-grid{grid-template-columns:1fr}.base-catalog-result{align-items:flex-start;flex-wrap:wrap}.base-catalog-result>.btn{margin-left:62px}}
+@media(max-width:380px){.base-scope-switch button{font-size:12px}.base-catalog-result>.btn{margin-left:0}}
