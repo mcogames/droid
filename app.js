@@ -1,4 +1,4 @@
-/* Droid Tycoon — v19: pesquisa Minha Base / catálogo completo e sugestões seguras de fusão. */
+/* Droid Tycoon — v20: droids e variantes faltantes no caminho em Minha Base. */
 (()=>{'use strict';
 const DB=window.DROID_DB;
 const STORE='droidtycoon_local_v1', RESTORE='droidtycoon_restore_undo_v1', NOTICE_KEY='droidtycoon_sale_notices_v2';
@@ -331,6 +331,59 @@ function refreshBaseResults(){
  const result=baseResultsHTML();target.innerHTML=result.html;
  count.textContent=ui.inventoryScope==='all'?`${result.count} de ${CAT.length} droids do catálogo`:`${result.count} registros na base`;
 }
+// Lista dinâmica dos requisitos FUTUROS que ainda não são atendidos pela Base.
+// Droids NÃO são consumidos ao passar de ciclo: vale a maior necessidade simultânea,
+// e não a soma de todos os ciclos. Variantes superiores satisfazem as inferiores.
+function missingBaseRequirements(){
+ if(!state.path)return [];
+ const group=new Map();
+ for(const r of R){
+  if(r.p!==state.path||r.c<state.cycle)continue;
+  if(!group.has(r.name))group.set(r.name,{name:r.name,cycles:new Map(),requirements:[]});
+  const entry=group.get(r.name);
+  if(!entry.cycles.has(r.c))entry.cycles.set(r.c,[]);
+  entry.cycles.get(r.c).push(r.tier);
+  entry.requirements.push(r);
+ }
+ const missing=[];
+ for(const row of group.values()){
+  const iconic=byName[row.name]?.rarity==='Iconic';
+  const owned=state.inventory[row.name]||{};
+  const levels=iconic?['Única']:T;
+  const deficit=[];
+  let acquiredHigher=0;
+  // Cada limiar precisa estar coberto pelo estoque da mesma variante ou superior.
+  for(let i=levels.length-1;i>=0;i--){
+   const atLeast=tiers=>tiers.filter(t=>iconic||rank(t)>=i).length;
+   const peak=Math.max(...[...row.cycles.values()].map(atLeast));
+   const inBase=iconic?(owned['Única']||0):Object.entries(owned).reduce((sum,[tier,qty])=>sum+(rank(tier)>=i?qty:0),0);
+   const shortage=Math.max(0,peak-inBase-acquiredHigher);
+   if(shortage){
+    const variant=levels[i];
+    const relatedCycles=[...new Set(row.requirements.filter(r=>r.tier===variant).map(r=>r.c))].sort((a,b)=>a-b);
+    deficit.push({tier:variant,qty:shortage,cycles:relatedCycles});
+    acquiredHigher+=shortage;
+   }
+  }
+  if(!deficit.length)continue;
+  row.requirements.sort((a,b)=>a.c-b.c||rank(b.tier)-rank(a.tier));
+  const existing=Object.entries(owned).filter(([,qty])=>qty>0).sort((a,b)=>rank(b[0])-rank(a[0]));
+  missing.push({name:row.name,deficit,existing,firstCycle:row.requirements[0].c,requirements:row.requirements});
+ }
+ return missing.sort((a,b)=>a.firstCycle-b.firstCycle||a.name.localeCompare(b.name,'pt-BR'));
+}
+function missingBasePanel(){
+ if(!state.path)return '';
+ const list=missingBaseRequirements();
+ const count=list.reduce((sum,item)=>sum+item.deficit.reduce((n,d)=>n+d.qty,0),0);
+ const cards=list.map(item=>{
+  const earliest=item.firstCycle;
+  const own=item.existing.length?`<span class="base-missing-owned">Na base: ${item.existing.map(([tier,qty])=>`${nf(qty)} × ${variantText(tier)}`).join(' · ')}</span>`:'<span class="base-missing-owned">Ainda não possui nenhuma variante</span>';
+  const requirements=[...new Map(item.requirements.map(r=>[`${r.c}:${r.tier}`,r])).values()].map(r=>`<span class="base-missing-cycle">Ciclo <b>${r.c}</b> · ${variantText(r.tier)}</span>`).join('');
+  return `<article class="base-missing-item"><div class="base-missing-head"><button type="button" ${panelButton(item.name,'','path-droid-link')}>${imageOf(item.name,false,item.deficit[0].tier)}<span class="droid-info"><span class="droid-heading">${h(item.name)} ${rarityTag(byName[item.name]?.rarity)}</span><span class="entry-sub">Próxima exigência no ciclo <strong>${earliest}</strong></span></span></button></div><div class="base-missing-need"><span class="base-missing-label">Falta na base:</span>${item.deficit.map(d=>`<div class="base-missing-variant">${variantBadge(d.tier)} <b>${nf(d.qty)} unidade(s)</b> ${btn('+ Cadastrar','add',{kind:'secondary',size:'small',attrs:`data-name="${h(item.name)}" data-tier="${h(d.tier)}"`})}</div>`).join('')}</div><div class="base-missing-cycles"><span class="base-missing-label">Ciclos e variantes exigidos:</span><div class="base-missing-cycle-list">${requirements}</div></div>${own}</article>`;
+ }).join('');
+ return section('basemissing','◈','Droids que ainda preciso',`Caminho ${state.path} · do ciclo ${state.cycle} ao 40`,`${nf(list.length)} droids`,list.length?`<div class="base-missing-intro">Faltam <strong>${nf(count)} unidade(s)</strong> distribuídas em <strong>${nf(list.length)} droid(s)</strong>. A lista considera as variantes que você já possui: uma variante superior também atende às inferiores. Os droids são reutilizados entre ciclos.</div><div class="base-missing-list">${cards}</div>`:'<div class="success-state">✓ Sua base já atende aos requisitos de droids dos ciclos restantes deste caminho.</div>');
+}
 function inventory(){
  const s=getStats(),result=baseResultsHTML();
  const isAll=ui.inventoryScope==='all';
@@ -345,7 +398,7 @@ function inventory(){
  <div class="base-catalog-trigger">${btn(isAll?'＋ Cadastro em lote':'＋ Cadastrar Droid','baseRegister',{kind:'secondary'})}<span class="mini-note">${isAll?'Para adicionar vários de uma só vez, abra o cadastro em lote.':'A busca em “Todos os droids” permite cadastrar sem mudar de aba.'}</span></div></div>`;
  let pool=state.path&&!ui.catalogAll?CAT.filter(d=>reqFor(d.name).length):CAT;pool=pool.filter(d=>(ui.catalogRarity==='Todos'||d.rarity===ui.catalogRarity)&&normSearch(d.name).includes(normSearch(ui.catalogSearch)));
  const catalog=`<section class="card card-pad" style="margin-top:17px"><div class="wizard-path-title"><h2 style="margin:0">Cadastro em lote</h2>${badge(`${pool.length} resultados`,'blue')}</div><div class="utility-bar"><div class="searchbox"><input class="input search-input" data-input="catalogSearch" value="${h(ui.catalogSearch)}" placeholder="Buscar droids para cadastrar..."></div><div class="field"><label class="hidden" for="catalog-rarity">Raridade</label><select class="select" id="catalog-rarity" data-input="catalogRarity">${selects([{value:'Todos',label:'Todas as raridades'},...['Common','Rare','Epic','Legendary','Mythic','Iconic'].map(value=>({value,label:rarityLabel(value)}))],ui.catalogRarity)}</select></div></div><div class="filter-row"><div class="seg"><button type="button" data-action="catalogMode" data-mode="current" class="${!ui.catalogAll?'on':''}">Do meu caminho</button><button type="button" data-action="catalogMode" data-mode="all" class="${ui.catalogAll?'on':''}">Todos os 100</button></div></div><div class="catalog-items">${pool.map(d=>`<div class="catalog-item"><button type="button" ${panelButton(d.name)}>${imageOf(d.name,false,best(d.name)||'Default')}<span class="droid-info"><span class="name">${h(d.name)}</span><span class="info rarity-meta">${rarityTag(d.rarity)} <span class="role-label">${h(roleLabel(d.role))}</span></span></span></button><div class="catalog-actions"><label class="batch-check"><input class="checkbox" type="checkbox" data-input="batchToggle" data-name="${h(d.name)}" ${ui.batch[d.name]?'checked':''}> Lote</label>${btn('+ Adicionar','add',{kind:'secondary',size:'small',attrs:`data-name="${h(d.name)}"`})}</div>${ui.batch[d.name]?`<div class="batch-box"><span class="small muted">Variante</span>${tierSelect(ui.batch[d.name].tier,d.rarity==='Iconic','batchTier',`data-input="batchTier" data-name="${h(d.name)}"`)}<span class="small muted">Quantidade</span><input class="input" type="number" min="1" max="10000" value="${ui.batch[d.name].qty}" data-input="batchQty" data-name="${h(d.name)}" aria-label="Quantidade de ${h(d.name)}"></div>`:''}</div>`).join('')||'<div class="empty">Nenhum droid corresponde aos filtros.</div>'}</div></section>`;
- return titlePage('INVENTÁRIO ATUAL','Minha Base','Sua base e o catálogo completo em um único lugar.',state.path?`${btn('Lista completa do caminho','openpathlist',{kind:'secondary'})}${btn('Meu caminho','opendashboard',{kind:'ghost'})}`:btn('Escolher caminho','setup'))+(!state.path?'<div class="hint" style="margin-bottom:18px">Selecione um caminho para ativar as recomendações de venda e fusão.</div>':'')+myDroids+(!isAll?fusionSuggestionsPanel():'')+(ui.catalogVisible?catalog:'')+(ui.catalogVisible&&Object.keys(ui.batch).length?`<div class="sticky-batch"><span><b>${Object.keys(ui.batch).length} selecionado(s)</b></span>${btn('Salvar em lote','saveBatch')}</div>`:'')+footer();
+ return titlePage('INVENTÁRIO ATUAL','Minha Base','Sua base e o catálogo completo em um único lugar.',state.path?`${btn('Lista completa do caminho','openpathlist',{kind:'secondary'})}${btn('Meu caminho','opendashboard',{kind:'ghost'})}`:btn('Escolher caminho','setup'))+(!state.path?'<div class="hint" style="margin-bottom:18px">Selecione um caminho para ativar as recomendações de venda e fusão.</div>':'')+myDroids+(!isAll?missingBasePanel():'')+(!isAll?fusionSuggestionsPanel():'')+(ui.catalogVisible?catalog:'')+(ui.catalogVisible&&Object.keys(ui.batch).length?`<div class="sticky-batch"><span><b>${Object.keys(ui.batch).length} selecionado(s)</b></span>${btn('Salvar em lote','saveBatch')}</div>`:'')+footer();
 }
 
 
@@ -592,7 +645,7 @@ function renderModal(){const root=document.getElementById('modal-root');const m=
  switch(m.kind){case 'createAccount':{title='Adicionar conta';subtitle='Os dados desta conta serão independentes.';content='<div class="field"><label for="account-name">Nome da nova conta</label><input id="account-name" class="input" name="name" maxlength="40" placeholder="Ex.: Minha segunda conta" required></div><p class="mini-note">Você poderá mudar o nome depois.</p>';buttons='<button class="btn" type="submit">Criar e usar conta</button>';break}
  case 'renameAccount':{const a=accountsDb.accounts.find(a=>a.id===m.id);if(!a){ui.modal=null;root.innerHTML='';return}title='Renomear conta';subtitle=a.name;content=`<div class="field"><label>Nome da conta</label><input class="input" name="name" maxlength="40" value="${h(a.name)}" required></div>`;buttons='<button class="btn" type="submit">Salvar novo nome</button>';break}
  case 'deleteAccount':{const a=accountsDb.accounts.find(a=>a.id===m.id);if(!a){ui.modal=null;root.innerHTML='';return}title='Excluir conta';subtitle=a.name;content=`<p>Esta ação apagará o inventário, progresso, histórico e avisos desta conta neste navegador. As demais contas não serão apagadas.</p><div class="hint"><strong>Recomendamos exportar o backup de todas as contas antes.</strong> A exclusão não tem botão de desfazer.</div><div class="field" style="margin-top:15px"><label>Digite <strong>${h(a.name)}</strong> para confirmar</label><input class="input" name="confirmName" autocomplete="off" required></div>`;buttons='<button class="btn danger" type="submit">Excluir conta definitivamente</button>';break}
- case 'add':{const d=byName[m.name];title=`Cadastrar ${m.name}`;subtitle='Informe o que você conseguiu no jogo.';content=`<div class="field"><label>Variante</label>${tierSelect(d?.rarity==='Iconic'?'Única':'Default',d?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade</label><input class="input" type="number" name="qty" min="1" max="100000" value="1" required></div>`;buttons=`<button class="btn" type="submit">Salvar droid</button>`;break}
+ case 'add':{const d=byName[m.name];title=`Cadastrar ${m.name}`;subtitle='Informe o que você conseguiu no jogo.';content=`<div class="field"><label>Variante</label>${tierSelect(validTier(m.name,m.tier)?m.tier:(d?.rarity==='Iconic'?'Única':'Default'),d?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade</label><input class="input" type="number" name="qty" min="1" max="100000" value="1" required></div>`;buttons=`<button class="btn" type="submit">Salvar droid</button>`;break}
  case 'edit':{title=`Editar ${m.name}`;subtitle=`Variante atual: ${variantLabel(m.tier)}`;content=`<div class="field"><label>Variante</label>${tierSelect(m.tier,byName[m.name]?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade total</label><input class="input" type="number" min="1" max="100000" name="qty" value="${state.inventory[m.name]?.[m.tier]||0}" required></div><div class="hint">Editar corrige o cadastro. Não registra venda nem consumo de chips.</div>`;buttons=`${btn('Excluir cadastro','delete',{kind:'danger'})}<button class="btn" type="submit">Salvar alterações</button>`;break}
  case 'evolve':{const options=T.slice(rank(m.tier)+1);title=`Evoluí ${m.name}`;subtitle=`Variante atual: ${variantLabel(m.tier)}`;content=`<div class="field"><label>Variante alcançada</label><select class="select variant-select" data-variant="${h(ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0])}" name="tier" id="evolve-tier" data-input="evolveDestination">${selects(options.map(value=>({value,label:variantLabel(value)})),ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0])}</select></div><div class="field"><label>Quantidade evoluída (máx. ${state.inventory[m.name]?.[m.tier]||0})</label><input class="input" name="qty" min="1" max="${state.inventory[m.name]?.[m.tier]||0}" type="number" value="1" required></div><div class="hint">Chips para uma unidade: <strong class="chip-highlight" id="evolve-cost">${nf(chips(m.name,m.tier,ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0]))}</strong>. O aplicativo apenas registra a evolução feita no jogo.</div>`;buttons=`<button class="btn" type="submit">Confirmar evolução</button>`;break}
  case 'removeOwned':{
@@ -879,7 +932,7 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
  case 'start':{const p=nInt(ui.setupPath,1,6),c=nInt(ui.setupCycle,1,40);if(!p||!c)return notify('Escolha um caminho e ciclo válidos.');save(()=>{state.path=p;state.cycle=c},'Seu caminho está configurado.');ui.tab=ui.setupRegister?'pathlist':'dashboard';ui.pathBatch={};ui.pathDraft={};render();if(ui.setupRegister)notify('Agora escolha as variantes e marque os droids que já possui.');break;}
  case 'setup':ui.tab='dashboard';state.path?openModal('changePath'):render();break;
  case 'openpathlist':setTab('pathlist');break;case 'opensearch':setTab('search');break;case 'opendashboard':setTab('dashboard');break;case 'openinventory':ui.inventoryScope='all';ui.catalogVisible=false;setTab('inventory');break;case 'addpick':ui.inventoryScope='all';ui.catalogVisible=false;setTab('inventory');break;
- case 'add':openModal('add',{name:n});break;case 'edit':openModal('edit',{name:n,tier:t});break;
+ case 'add':openModal('add',{name:n,tier:t});break;case 'edit':openModal('edit',{name:n,tier:t});break;
  case 'delete':if(ui.modal?.kind==='edit')openModal('delete',{name:ui.modal.name,tier:ui.modal.tier});break;
  case 'evolve':ui.evolveDestination='';openModal('evolve',{name:n,tier:t});break;
  case 'removeOwned':{if(!n||!t||!(state.inventory[n]?.[t]>0))return notify('Este droid não está no inventário desta conta.');openModal('removeOwned',{name:n,tier:t});break;}

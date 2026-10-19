@@ -576,3 +576,26 @@ select.variant-select option{background:#111f32;color:#e0e8f2}
 .fusion-plus{color:#81a9ba;padding:0 2px}
 @media(max-width:760px){.smart-fusion-grid{grid-template-columns:1fr}.base-catalog-result{align-items:flex-start;flex-wrap:wrap}.base-catalog-result>.btn{margin-left:62px}}
 @media(max-width:380px){.base-scope-switch button{font-size:12px}.base-catalog-result>.btn{margin-left:0}}
+
+/* v20 — requisitos faltantes, recolhidos por padrão, somente na Minha Base. */
+.base-missing-section{margin-top:18px}
+.base-missing-section .section-body{padding:16px 20px 21px}
+.base-missing-intro{color:#b7c9d9;font-size:12px;line-height:1.65;margin:0 0 15px}
+.base-missing-intro strong{color:#e8f4ff}
+.base-missing-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.base-missing-item{min-width:0;border:1px solid #30465e;background:#102138;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.base-missing-head .path-droid-link{display:flex;text-align:left;gap:10px;align-items:center;min-width:0;width:100%}
+.base-missing-head .droid-info{flex:1;min-width:0}
+.base-missing-head .entry-sub{font-size:12px}
+.base-missing-head .entry-sub strong{color:#f7cb82;font-size:13px}
+.base-missing-label{font-size:11px;font-weight:800;color:#aac0d5;letter-spacing:.08px}
+.base-missing-need,.base-missing-cycles{display:grid;gap:7px}
+.base-missing-variant{display:flex;gap:9px;align-items:center;flex-wrap:wrap;background:#182a3e;border:1px solid #314a60;border-radius:10px;padding:8px 9px;font-size:12px}
+.base-missing-variant b{color:#f1f5fb;font-size:12px}
+.base-missing-variant .btn{margin-left:auto;min-height:30px;padding:5px 10px;font-size:11px}
+.base-missing-cycle-list{display:flex;flex-wrap:wrap;gap:6px}
+.base-missing-cycle{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;border:1px solid #324861;background:#182b40;border-radius:8px;padding:4px 8px;color:#c6d6e6;font-size:11px}
+.base-missing-cycle b{color:#ffdb9e}
+.base-missing-owned{font-size:11px;color:#95b2ca;line-height:1.7}
+@media(max-width:850px){.base-missing-list{grid-template-columns:1fr}}
+@media(max-width:760px){.base-missing-section .section-body{padding:14px}.base-missing-variant .btn{flex-shrink:0}}
