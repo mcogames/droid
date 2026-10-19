@@ -608,3 +608,41 @@ select.variant-select option{background:#111f32;color:#e0e8f2}
 .cloud-status-button.cloud-active{color:#91eccd}
 .cloud-status-button.cloud-attention{color:#ffca78}
 .cloud-status-button:hover{text-decoration:underline}
+
+
+/* v25 — Minha Base inicia o aplicativo. Busca e filtros sempre acessíveis
+   durante a rolagem; apenas uma seção complementar é expandida por vez. */
+.base-floating-controls{
+ position:sticky;top:8px;z-index:21;
+ background:rgba(14,29,47,.96);border:1px solid #3a586b;
+ box-shadow:0 8px 28px #0007;border-radius:15px;
+ padding:10px 13px;margin:0 0 15px;
+ -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+}
+.base-floating-controls .base-scope-switch{margin:0 0 8px}
+.base-search-row{display:flex;align-items:center;gap:12px}
+.base-search-row .base-search-label{flex:0 0 auto;margin:0;font-size:10px;white-space:nowrap}
+.base-floating-controls .base-unified-search{margin:0;flex:1;min-width:140px}
+.base-floating-controls .base-unified-search .input{min-height:39px}
+.base-floating-controls .base-scope-switch button{padding:8px 10px;min-height:36px}
+.base-floating-controls .base-filter-pills{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding:8px 0 3px;scrollbar-width:thin}
+.base-floating-controls .filter-pill{white-space:nowrap;flex:0 0 auto;padding:6px 11px;font-size:11px}
+.base-view-links{display:flex;gap:7px;margin-top:7px;overflow-x:auto;scrollbar-width:thin}
+.base-view-links button{border:1px solid #3a556a;background:#172d43;color:#d1deea;border-radius:9px;font-size:11px;font-weight:750;padding:7px 10px;white-space:nowrap;flex-shrink:0}
+.base-view-links button[aria-pressed="true"],.base-view-links button:hover{background:#20443f;color:#a5f5db;border-color:#4b8474}
+#base-owned,#basemissing,#fusionideas{scroll-margin-top:205px}
+.base-fusion-accordion{margin-top:18px}
+.base-fusion-accordion .section-body{padding:15px 20px 20px}
+.base-fusion-panel{margin-top:0}
+.base-fusion-accordion .smart-fusion-filters{margin-top:13px}
+@media(max-width:760px){
+ .base-floating-controls{top:5px;padding:8px 10px;border-radius:13px;margin-bottom:12px}
+ .base-floating-controls .base-scope-switch button{padding:7px 5px;font-size:11px}
+ .base-search-row .base-search-label{display:none}
+ .base-floating-controls .base-unified-search .input{min-height:39px}
+ .base-floating-controls .base-filter-pills{padding-top:6px}
+ .base-view-links{margin-top:5px}
+ .base-view-links button{font-size:10px;padding:6px 9px}
+ #base-owned,#basemissing,#fusionideas{scroll-margin-top:210px}
+ .base-fusion-accordion .section-body{padding:12px}
+}
