@@ -1,4 +1,4 @@
-/* Droid Tycoon — v20: droids e variantes faltantes no caminho em Minha Base. */
+/* Droid Tycoon — v21: Backup no Google Drive + fusoes inteligentes com excedentes reais. */
 (()=>{'use strict';
 const DB=window.DROID_DB;
 const STORE='droidtycoon_local_v1', RESTORE='droidtycoon_restore_undo_v1', NOTICE_KEY='droidtycoon_sale_notices_v2';
@@ -56,10 +56,10 @@ function cleanFusion(raw){
  // Compatível com os backups antigos: as reservas comuns são opcionais.
  const validParts=parts=>Array.isArray(parts)&&parts.length===3&&parts.every(p=>p&&validName(p.name)&&validTier(p.name,p.tier)&&p.tier!=='Única');
  if(Array.isArray(raw.genericPlans))for(const row of raw.genericPlans.slice(0,40)){
-  if(row&&typeof row.id==='string'&&row.id.length<=100&&['special','variant','rarity'].includes(row.kind)&&validParts(row.parts)&&!out.genericPlans.some(p=>p.id===row.id))
+  if(row&&typeof row.id==='string'&&row.id.length<=100&&['special','variant','rarity','mythic'].includes(row.kind)&&validParts(row.parts)&&!out.genericPlans.some(p=>p.id===row.id))
    out.genericPlans.push({id:row.id,kind:row.kind,parts:row.parts.map(p=>({name:p.name,tier:p.tier}))});
  }
- if(Array.isArray(raw.genericHistory))out.genericHistory=raw.genericHistory.filter(x=>x&&['special','variant','rarity'].includes(x.kind)&&validParts(x.parts)&&validName(x.result)&&validTier(x.result,x.tier)).slice(-120).map(x=>({kind:x.kind,parts:x.parts.map(p=>({name:p.name,tier:p.tier})),result:x.result,tier:x.tier,date:typeof x.date==='string'?x.date.slice(0,40):''}));
+ if(Array.isArray(raw.genericHistory))out.genericHistory=raw.genericHistory.filter(x=>x&&['special','variant','rarity','mythic'].includes(x.kind)&&validParts(x.parts)&&validName(x.result)&&validTier(x.result,x.tier)).slice(-120).map(x=>({kind:x.kind,parts:x.parts.map(p=>({name:p.name,tier:p.tier})),result:x.result,tier:x.tier,date:typeof x.date==='string'?x.date.slice(0,40):''}));
  return out;
 }
 
@@ -113,10 +113,10 @@ let accountsDb=null,storageError='';
 try{accountsDb=loadAccounts()}catch(e){storageError=e.message||'Armazenamento indisponível.';accountsDb={schema:2,activeId:'bloqueada',accounts:[{id:'bloqueada',name:'Recuperação',data:readLegacy(),notices:{}}]}}
 function currentAccount(){return accountsDb.accounts.find(a=>a.id===accountsDb.activeId)||accountsDb.accounts[0]}
 let state=currentAccount().data,unreadNotices=currentAccount().notices;
-let ui={tab:state.path?'dashboard':'search',open:new Set(['pending']),search:'',pathFilter:0,detail:'',detailTier:'',browsePath:1,browseCycle:1,catalogSearch:'',catalogRarity:'Todos',catalogAll:false,batch:{},batchMode:true,setupPath:1,setupCycle:1,setupRegister:true,pathSearch:'',pathChecklistFilter:'Todos',pathBatch:{},pathDraft:{},fusionFilter:'Todas',fusionSearch:'',fusionOpen:'',fusionDraft:{},inventorySearch:'',inventoryScope:'mine',inventoryFilter:'Todos',catalogVisible:false,lastQuickSale:false,modal:null},undo=null,toastTimer=null;
+let ui={tab:state.path?'dashboard':'search',open:new Set(['pending']),search:'',pathFilter:0,detail:'',detailTier:'',browsePath:1,browseCycle:1,catalogSearch:'',catalogRarity:'Todos',catalogAll:false,batch:{},batchMode:true,setupPath:1,setupCycle:1,setupRegister:true,pathSearch:'',pathChecklistFilter:'Todos',pathBatch:{},pathDraft:{},fusionFilter:'Todas',fusionSearch:'',fusionOpen:'',fusionDraft:{},inventorySearch:'',inventoryScope:'mine',inventoryFilter:'Todos',fusionIdeaFilter:'Todas',fusionIdeaExpanded:false,catalogVisible:false,lastQuickSale:false,modal:null},undo=null,toastTimer=null;
 function saveAccountsBlob(){
  if(storageError){notify('Salvamento bloqueado: '+storageError);return false}
- try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accountsDb));return true}
+ try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accountsDb));window.DroidDrive?.noteLocalChange();return true}
  catch(e){notify('Não foi possível salvar as contas. Exporte seu backup e libere espaço no navegador.');return false}
 }
 function writeAccounts(){const a=currentAccount();a.data=state;a.notices=unreadNotices;return saveAccountsBlob()}
@@ -152,7 +152,7 @@ function reconcileNotices(before){const after=salesMap();for(const [key,v] of Ob
  storeNotices();}
 function listNewSales(){const available=salesMap();return Object.values(unreadNotices).filter(x=>available.has(nextId(x.name,x.tier))).map(x=>({...x,qty:Math.min(x.qty,available.get(nextId(x.name,x.tier)))})).filter(x=>x.qty>0)}
 const app=document.getElementById('app');
-function persist(){state.lastModified=Date.now();return writeAccounts()}
+function persist(){requireCountsCache=null;state.lastModified=Date.now();return writeAccounts()}
 function notify(message,withUndo=false){const el=document.getElementById('toast');el.innerHTML=h(message)+(withUndo?` <button type="button" data-action="undo">Desfazer</button>`:'');el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),5700)}
 function save(mutator,message){ui.lastQuickSale=false;const before=JSON.stringify(state),oldNotices=JSON.stringify(unreadNotices),oldSales=salesMap();mutator();persist();reconcileNotices(oldSales);undo=()=>{state=sanitize(JSON.parse(before));unreadNotices=JSON.parse(oldNotices);persist();storeNotices();render();notify('Alteração desfeita.')};render();if(message)notify(message,!!undo)}
 const reqFor=(name,path=state.path,from=state.cycle)=>R.filter(x=>x.name===name&&x.p===path&&x.c>=from).sort((a,b)=>a.c-b.c);
@@ -174,20 +174,63 @@ function fusionPlanNeeds(skip=''){
  }
  return map;
 }
-function requireCounts(){
- const owned=arrInventory(state),protectedEntries=[],saleEntries=[];
- const fusionDemand=fusionPlanNeeds(),kept={},maxNeed={};
- if(state.path)for(const r of R){if(r.p!==state.path||r.c<state.cycle)continue;const key=nextId(r.name,r.c),n=(maxNeed[key]||0)+1;maxNeed[key]=n;}
- for(const [key,q] of Object.entries(maxNeed)){const name=key.slice(0,key.lastIndexOf('::'));kept[name]=Math.max(kept[name]||0,q)}
- for(const e of owned){
-  const fused=Math.min(e.qty,fusionDemand[nextId(e.name,e.tier)]||0),other=e.qty-fused;
-  const forPath=state.path?Math.min(other,kept[e.name]||0):0;
-  kept[e.name]=Math.max(0,(kept[e.name]||0)-forPath);
-  const take=fused+forPath;
-  if(take)protectedEntries.push({...e,qty:take,fusionQty:fused,pathQty:forPath,current:!!state.path&&needAt(e.name,state.path,state.cycle).length>0,requirements:reqFor(e.name)});
-  if(state.path&&e.qty>take)saleEntries.push({...e,qty:e.qty-take});
+// Um droid pode servir em vários ciclos; suas unidades não são consumidas entre ciclos.
+// Calculamos a quantidade máxima de requisitos que as unidades atuais conseguem satisfazer
+// em CADA ciclo futuro. Só é excedente o que pode sair sem reduzir essa cobertura.
+function futureCycleCoverage(name,remaining){
+ if(!state.path)return [];
+ const cycles=new Map(),tiers=byName[name]?.rarity==='Iconic'?['Única']:T;
+ for(const req of reqFor(name)){
+  if(!cycles.has(req.c))cycles.set(req.c,[]);
+  cycles.get(req.c).push(req.tier);
  }
- return {protectedEntries,saleEntries};
+ return [...cycles.values()].map(required=>{
+  const free=tiers.map(t=>Math.max(0,remaining[t]||0));
+  let matched=0;
+  // Começamos pela variante mais exigente para não desperdiçar um Kyber numa
+  // exigência Padrão que poderia ser atendida por uma unidade inferior.
+  for(const tier of required.sort((a,b)=>tiers.indexOf(b)-tiers.indexOf(a))){
+   const minimum=tiers.indexOf(tier);
+   if(minimum<0)continue;
+   for(let i=minimum;i<tiers.length;i++)if(free[i]>0){free[i]--;matched++;break}
+  }
+  return matched;
+ });
+}
+let requireCountsCache=null;
+function requireCounts(){
+ if(requireCountsCache)return requireCountsCache;
+ const protectedEntries=[],saleEntries=[],reserved=fusionPlanNeeds();
+ const owned=arrInventory(state),groups=new Map();
+ for(const row of owned){if(!groups.has(row.name))groups.set(row.name,[]);groups.get(row.name).push(row)}
+ for(const [name,rows] of groups){
+  const remainder={},fixed={};
+  for(const row of rows){
+   const fusion=Math.min(row.qty,reserved[nextId(name,row.tier)]||0);
+   fixed[row.tier]=fusion;remainder[row.tier]=row.qty-fusion;
+  }
+  const baseline=state.path?futureCycleCoverage(name,remainder):[];
+  // Venda prioritária das variantes baixas; mantém as superiores que podem
+  // substituir as inferiores nos ciclos ainda não concluídos.
+  for(const row of [...rows].sort((a,b)=>rank(a.tier)-rank(b.tier))){
+   const tier=row.tier,free=remainder[tier];let sell=0;
+   if(state.path){
+    let low=0,high=free;
+    while(low<high){
+     const mid=Math.ceil((low+high)/2);
+     remainder[tier]=free-mid;
+     const after=futureCycleCoverage(name,remainder);
+     if(after.every((x,i)=>x===baseline[i]))low=mid;else high=mid-1;
+    }
+    sell=low;
+   }
+   remainder[tier]=free-sell;
+   const fusionQty=fixed[tier]||0,pathQty=free-sell,kept=fusionQty+pathQty;
+   if(kept)protectedEntries.push({...row,qty:kept,fusionQty,pathQty,current:!!state.path&&needAt(name,state.path,state.cycle).length>0,requirements:reqFor(name)});
+   if(sell)saleEntries.push({...row,qty:sell});
+  }
+ }
+ return (requireCountsCache={protectedEntries,saleEntries});
 }
 function pendings(){return pick(state.path,state.cycle).filter(r=>meets(r.name,r.tier)<needAt(r.name,state.path,state.cycle).length)}
 function stageBuckets(){const confirmed=[],unknown=[],fulfilled=[];for(const r of pick(state.path,state.cycle)){if(meets(r.name,r.tier)>=needAt(r.name,state.path,state.cycle).length)fulfilled.push(r);else if(anyOwned(r.name)||state.absent[r.name]===true)confirmed.push(r);else unknown.push(r)}return {confirmed,unknown,fulfilled}}
@@ -403,42 +446,46 @@ function inventory(){
 
 
 // Propostas conservadoras: três excedentes da MESMA variante. Sem mexer em reservas ou requisitos.
+// A fusão aleatória aceita três modelos DIFERENTES da mesma raridade, mesmo
+// com variantes mistas. O resultado herda a MENOR variante entre os três.
 function genericPlanResult(kind,parts){
  if(!Array.isArray(parts)||parts.length!==3)return null;
- const common=parts[0].tier,rarity=byName[parts[0].name]?.rarity;
  if(parts.some(p=>!validTier(p.name,p.tier)||p.tier==='Única'))return null;
+ const rarity=byName[parts[0].name]?.rarity,common=parts[0].tier;
+ const lowest=parts.reduce((tier,p)=>rank(p.tier)<rank(tier)?p.tier:tier,common);
+ const isSpecial=FUSIONS.some(r=>r.parts.slice().sort().join('|')===parts.map(p=>p.name).sort().join('|'));
  if(kind==='special'){
   const match=FUSIONS.find(r=>r.parts.slice().sort().join('|')===parts.map(p=>p.name).sort().join('|'));
-  return match?{name:match.id,tier:parts.reduce((lowest,p)=>rank(p.tier)<rank(lowest)?p.tier:lowest,parts[0].tier),random:false}:null;
+  return match?{name:match.id,tier:lowest,random:false}:null;
  }
- if(parts.some(p=>p.tier!==common))return null;
- // Receitas exclusivas prevalecem sobre fusões aleatórias, mesmo com três raridades iguais.
- if(FUSIONS.some(r=>r.parts.slice().sort().join('|')===parts.map(p=>p.name).sort().join('|')))return null;
- if(kind==='variant'&&parts.every(p=>p.name===parts[0].name)&&common!=='Kyber')return {name:parts[0].name,tier:T[rank(common)+1],random:false};
- if(kind==='rarity'&&parts.every(p=>byName[p.name].rarity===rarity)&&new Set(parts.map(p=>p.name)).size===3){
+ if(isSpecial)return null; // Receita exclusiva sempre tem precedência.
+ if(kind==='variant'&&parts.every(p=>p.tier===common&&p.name===parts[0].name)&&common!=='Kyber')
+  return {name:parts[0].name,tier:T[rank(common)+1],random:false};
+ if(kind==='mythic'&&rarity==='Mythic'&&common!=='Kyber'&&parts.every(p=>byName[p.name]?.rarity==='Mythic'&&p.tier===common)&&new Set(parts.map(p=>p.name)).size>=2)
+  return {rarity:'Mythic',tier:T[rank(common)+1],random:true};
+ if(kind==='rarity'&&parts.every(p=>byName[p.name]?.rarity===rarity)&&new Set(parts.map(p=>p.name)).size===3){
   const next={Common:'Rare',Rare:'Epic',Epic:'Legendary',Legendary:'Mythic'}[rarity];
   if(!next)return null;
-  return {rarity:next,tier:common,random:true};
+  return {rarity:next,tier:lowest,random:true};
  }
  return null;
 }
 function availableFusionStock(){
- const result={};if(!state.path)return result;
- for(const row of requireCounts().saleEntries)result[nextId(row.name,row.tier)]=row.qty;
- return result;
+ const stock={};
+ for(const row of requireCounts().saleEntries)stock[nextId(row.name,row.tier)]=row.qty;
+ return stock;
 }
 function safeForProgress(parts){
- // Cada requisito que já era atendido deve permanecer atendido após a fusão.
+ // Conferência adicional contra consumir uma unidade que atende requisito atual
+ // ou futuro já satisfeito. O cálculo principal de excedentes usa todos os ciclos.
  const byConsumed={};for(const p of parts)byConsumed[nextId(p.name,p.tier)]=(byConsumed[nextId(p.name,p.tier)]||0)+1;
  for(const name of new Set(parts.map(p=>p.name))){
-  const cycles=new Map();for(const req of reqFor(name)){if(!cycles.has(req.c))cycles.set(req.c,[]);cycles.get(req.c).push(req);}
-  for(const reqs of cycles.values())for(const req of reqs){
-   const threshold=rank(req.tier);
-   const required=reqs.filter(x=>rank(x.tier)>=threshold).length;
-   const before=Object.entries(state.inventory[name]||{}).reduce((sum,[tier,q])=>sum+(rank(tier)>=threshold?q:0),0);
-   const taken=parts.filter(x=>x.name===name&&rank(x.tier)>=threshold).length;
-   if(before>=required&&before-taken<required)return false;
+  const owned={...(state.inventory[name]||{})},before=futureCycleCoverage(name,owned);
+  for(const [key,qty] of Object.entries(byConsumed))if(key.startsWith(name+'::')){
+   const tier=key.slice(name.length+2);owned[tier]=Math.max(0,(owned[tier]||0)-qty);
   }
+  const after=futureCycleCoverage(name,owned);
+  if(after.some((value,index)=>value<before[index]))return false;
  }
  return true;
 }
@@ -450,47 +497,103 @@ function planIsFree(parts,skip=''){
  return true;
 }
 function fusionSuggestions(){
- const stock=availableFusionStock(),ideas=[],max=24;
- const enough=parts=>{const used={};for(const p of parts){const key=nextId(p.name,p.tier);used[key]=(used[key]||0)+1;if(used[key]>(stock[key]||0))return false}return safeForProgress(parts)};
- const push=(kind,parts)=>{const result=genericPlanResult(kind,parts);if(!result||!enough(parts))return;ideas.push({kind,parts,result})};
- // Receitas especiais: prioriza três ingredientes da mesma variante para não reduzir o resultado.
+ const stock=availableFusionStock(),ideas=[],seen=new Set();
+ const enough=parts=>{
+  const used={};for(const p of parts){const key=nextId(p.name,p.tier);
+   used[key]=(used[key]||0)+1;if(used[key]>(stock[key]||0))return false;
+  }
+  return safeForProgress(parts);
+ };
+ const push=(kind,parts)=>{
+  if(!enough(parts))return false;
+  const result=genericPlanResult(kind,parts);if(!result)return false;
+  const signature=kind+':'+parts.map(p=>nextId(p.name,p.tier)).sort().join('|');
+  if(seen.has(signature))return false;
+  seen.add(signature);ideas.push({kind,parts,result});return true;
+ };
+ // Receitas exclusivas: considera também misturas de variantes (resulta a menor).
  for(const recipe of FUSIONS){
+  const options=recipe.parts.map(name=>[...T].reverse().filter(t=>(stock[nextId(name,t)]||0)>0));
+  if(options.some(x=>!x.length))continue;
+  const choices=[];
+  for(const a of options[0])for(const b of options[1])for(const c of options[2]){
+   const parts=recipe.parts.map((name,i)=>({name,tier:[a,b,c][i]}));
+   if(enough(parts))choices.push(parts);
+  }
+  choices.sort((a,b)=>{
+   const low=x=>Math.min(...x.map(p=>rank(p.tier)));
+   // Primeiro a variante mais alta, depois a combinação que menos desperdiça variantes superiores.
+   return low(b)-low(a)||a.reduce((v,p)=>v+rank(p.tier),0)-b.reduce((v,p)=>v+rank(p.tier),0);
+  });
+  for(const parts of choices.slice(0,2))push('special',parts);
+ }
+ // Evolução de variante: três unidades do MESMO droid e da MESMA variante.
+ for(const d of CAT){if(d.rarity==='Iconic')continue;
   for(const tier of [...T].reverse()){
-   const parts=recipe.parts.map(name=>({name,tier}));if(enough(parts)){push('special',parts);break;}
+   if(tier==='Kyber')continue;
+   if((stock[nextId(d.name,tier)]||0)>=3)
+    push('variant',Array.from({length:3},()=>({name:d.name,tier})));
   }
  }
- for(const d of CAT){if(d.rarity==='Iconic')continue;for(const tier of [...T].reverse()){
+ // Evolução de raridade: modelos diferentes, mesma raridade. Variedades podem
+ // ser diferentes; o resultado terá a MENOR variante dos ingredientes.
+ for(const rarity of ['Legendary','Epic','Rare','Common']){
+  const pool=CAT.filter(d=>d.rarity===rarity).flatMap(d=>T.filter(tier=>(stock[nextId(d.name,tier)]||0)>0).map(tier=>({name:d.name,tier})));
+  for(const minTier of [...T].reverse()){
+   const eligible=pool.filter(p=>rank(p.tier)>=rank(minTier));
+   const anchors=eligible.filter(p=>p.tier===minTier);
+   if(new Set(eligible.map(p=>p.name)).size<3||!anchors.length)continue;
+   // Preferimos ingredientes da MESMA variante, antes de gastar uma superior.
+   const order=(a,b)=>rank(a.tier)-rank(b.tier)||a.name.localeCompare(b.name,'pt-BR');
+   const ordered=[...eligible].sort(order);
+   let inserted=0;
+   for(const anchor of anchors.sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'))){
+    const remaining=ordered.filter(p=>p.name!==anchor.name);
+    for(let j=0;j<remaining.length;j++){
+     const first=remaining[j];
+     const second=remaining.find((p,k)=>k>j&&p.name!==first.name);
+     if(!second)continue;
+     if(push('rarity',[anchor,first,second])){inserted++;break;}
+    }
+    if(inserted>=4)break;
+   }
+  }
+ }
+ // Três Míticos da mesma variante também podem gerar um Mítico aleatório
+ // da variante seguinte. Não sugerimos Kyber: o aplicativo não rastreia cores.
+ for(const tier of [...T].reverse()){
   if(tier==='Kyber')continue;
-  const parts=Array.from({length:3},()=>({name:d.name,tier}));
-  if(enough(parts))push('variant',parts);
- }}
- const rarityOrder=['Legendary','Epic','Rare','Common'];
- for(const rarity of rarityOrder)for(const tier of [...T].reverse()){
-  const names=CAT.filter(d=>d.rarity===rarity&&(stock[nextId(d.name,tier)]||0)>0).map(d=>d.name);
-  if(names.length<3)continue;
-  // Encontra os três primeiros diferentes, sem sugerir uma receita especial por engano.
-  let selected=null;
-  outer:for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)for(let k=j+1;k<names.length;k++){
+  const names=CAT.filter(d=>d.rarity==='Mythic'&&(stock[nextId(d.name,tier)]||0)>0).map(d=>d.name);
+  if(names.length<2)continue;
+  let count=0;
+  for(let i=0;i<names.length&&count<3;i++)for(let j=i;j<names.length&&count<3;j++)for(let k=j+1;k<names.length&&count<3;k++){
    const parts=[names[i],names[j],names[k]].map(name=>({name,tier}));
-   if(genericPlanResult('rarity',parts)&&enough(parts)){selected=parts;break outer;}
+   if(push('mythic',parts))count++;
   }
-  if(selected)push('rarity',selected);
  }
- const priority={special:2,variant:1,rarity:0};
- return ideas.sort((a,b)=>rank(b.result.tier)-rank(a.result.tier)||priority[b.kind]-priority[a.kind]||['Legendary','Epic','Rare','Common'].indexOf(byName[a.parts[0].name].rarity)-['Legendary','Epic','Rare','Common'].indexOf(byName[b.parts[0].name].rarity)).slice(0,max);
+ const priority={rarity:4,mythic:3,special:2,variant:1};
+ const rarityOrder={Legendary:0,Epic:1,Rare:2,Common:3};
+ return ideas.sort((a,b)=>rank(b.result.tier)-rank(a.result.tier)||priority[b.kind]-priority[a.kind]||
+  (rarityOrder[byName[a.parts[0].name]?.rarity]??4)-(rarityOrder[byName[b.parts[0].name]?.rarity]??4));
 }
-const fusionKindName={special:'Fusão especial',variant:'Evoluir variante',rarity:'Evoluir raridade'};
+const fusionKindName={special:'Fusão especial',variant:'Evoluir variante',rarity:'Evoluir raridade',mythic:'Evoluir Mítico'};
 function fusionPartsSummary(parts){return parts.map(p=>`${h(p.name)} · ${variantText(p.tier)}`).join(' <span class="fusion-plus">+</span> ')}
 function fusionSuggestionsPanel(){
  const ideas=fusionSuggestions(),plans=state.fusions.genericPlans||[];
  const saved=plans.map(plan=>{const result=genericPlanResult(plan.kind,plan.parts),ready=!!result&&planIsFree(plan.parts,'g:'+plan.id);
   return `<article class="smart-fusion-card smart-fusion-reserved"><div class="smart-fusion-meta">${badge('Reservada','success')} <b>${h(fusionKindName[plan.kind])}</b></div><div class="smart-fusion-parts">${fusionPartsSummary(plan.parts)}</div><div class="smart-fusion-outcome">→ ${result?.random?`Droid ${h(rarityLabel(result.rarity))} aleatório`:h(result?.name||'—')} · ${result?variantText(result.tier):''}</div><div class="smart-fusion-actions">${btn('Já fiz esta fusão','genericMake',{kind:'outline-green',size:'small',attrs:`data-id="${h(plan.id)}" ${ready?'':'disabled'}`})}${btn('Cancelar reserva','genericUnplan',{kind:'ghost',size:'small',attrs:`data-id="${h(plan.id)}"`})}</div>${ready?'':'<small class="base-risk">Ingredientes indisponíveis; confira a reserva.</small>'}</article>`;
  }).join('');
- const cards=ideas.slice(0,12).map((idea,i)=>`<article class="smart-fusion-card"><div class="smart-fusion-meta"><b>${h(fusionKindName[idea.kind])}</b>${idea.kind==='special'?badge('Exclusiva','blue'):''}</div><div class="smart-fusion-parts">${fusionPartsSummary(idea.parts)}</div><div class="smart-fusion-outcome">→ ${idea.result.random?`1 ${h(rarityLabel(idea.result.rarity))} aleatório`:`1 ${h(idea.result.name)}`} · ${variantText(idea.result.tier)}</div><div class="smart-fusion-actions">${btn('Guardar para fusão','genericReserve',{kind:'secondary',size:'small',attrs:`data-idea="${i}"`})}${btn('Já fiz esta fusão','genericMakeNow',{kind:'ghost',size:'small',attrs:`data-idea="${i}"`})}</div></article>`).join('');
- return `<section class="card card-pad base-fusion-panel"><div class="wizard-path-title"><div><h2 style="margin:0">⚗ Sugestões de fusão</h2><p class="mini-note">Combinações com 3 unidades <strong>excedentes</strong>, sem usar droids protegidos do caminho ou de outras reservas.</p></div>${badge(`${ideas.length} sugestão(ões)`,'blue')}</div>
+ const filter=ui.fusionIdeaFilter||'Todas';
+ const visible=ideas.map((idea,index)=>({idea,index})).filter(({idea})=>filter==='Todas'||idea.kind===filter);
+ const limit=ui.fusionIdeaExpanded?60:12;
+ const cards=visible.slice(0,limit).map(({idea,index})=>`<article class="smart-fusion-card"><div class="smart-fusion-meta"><b>${h(fusionKindName[idea.kind])}</b>${idea.kind==='special'?badge('Exclusiva','blue'):''}</div><div class="smart-fusion-parts">${fusionPartsSummary(idea.parts)}</div><div class="smart-fusion-outcome">→ ${idea.result.random?`1 ${h(rarityLabel(idea.result.rarity))} aleatório`:`1 ${h(idea.result.name)}`} · ${variantText(idea.result.tier)}</div><div class="smart-fusion-actions">${btn('Guardar para fusão','genericReserve',{kind:'secondary',size:'small',attrs:`data-idea="${index}"`})}${btn('Já fiz esta fusão','genericMakeNow',{kind:'ghost',size:'small',attrs:`data-idea="${index}"`})}</div></article>`).join('');
+ return `<section class="card card-pad base-fusion-panel"><div class="wizard-path-title"><div><h2 style="margin:0">⚗ Sugestões de fusão</h2><p class="mini-note">Analisa todos os droids excedentes e as variantes disponíveis, sem consumir unidades necessárias no caminho ou reservadas.</p></div>${badge(`${ideas.length} sugestão(ões)`,'blue')}</div>
  ${saved?`<h3 class="smart-fusion-subtitle">Ingredientes que você reservou</h3><div class="smart-fusion-grid">${saved}</div>`:''}
- ${ideas.length?`<h3 class="smart-fusion-subtitle">Combinações disponíveis</h3><div class="smart-fusion-grid">${cards}</div>`:'<div class="empty">Nenhuma combinação segura com três excedentes neste momento.</div>'}
- <p class="mini-note">As propostas são alternativas: os mesmos excedentes podem aparecer em mais de uma sugestão. Ao reservar uma delas, as outras são recalculadas. Resultados aleatórios precisam ser confirmados após a fusão no jogo. Kyber colorido não é controlado pelo aplicativo.</p></section>`;
+ <div class="filter-row smart-fusion-filters" role="group" aria-label="Filtrar sugestões de fusão">
+  ${[['Todas','Todas'],['rarity','Evoluir raridade'],['variant','Evoluir variante'],['mythic','Evoluir Mítico'],['special','Fusões especiais']].map(([value,label])=>`<button type="button" class="btn small ${filter===value?'outline-green':'ghost'}" data-action="fusionIdeaFilter" data-filter="${value}" aria-pressed="${filter===value}">${label}</button>`).join('')}
+ </div>
+ ${visible.length?`<h3 class="smart-fusion-subtitle">Combinações disponíveis · ${visible.length}</h3><div class="smart-fusion-grid">${cards}</div>${ui.fusionIdeaExpanded?btn('Mostrar menos','fusionIdeaMore',{kind:'ghost',size:'small'}):visible.length>limit?btn(`Ver mais sugestões (${visible.length-limit})`,'fusionIdeaMore',{kind:'secondary',size:'small'}):''}`:'<div class="empty">Nenhuma combinação com três excedentes neste filtro.</div>'}
+ <p class="mini-note">O sistema analisa todas as unidades excedentes das variantes disponíveis e mostra até 60 combinações por filtro. As propostas são alternativas: os mesmos droids podem aparecer em mais de uma sugestão. Ao reservar uma delas, as outras são recalculadas. Resultados aleatórios precisam ser confirmados após a fusão no jogo. Kyber colorido não é controlado pelo aplicativo.</p></section>`;
 }
 
 // ----- Fusion Lab: receitas, escolhas e reservas independentes por conta -----
@@ -620,9 +723,9 @@ function mergeBackupAccounts(rows,selectImported=false){
  return {schema:2,activeId:chosen,accounts:list};
 }
 function accountSettings(){return `<section class="card card-pad account-settings"><div class="wizard-path-title"><div><h2 style="margin:0">Minhas contas</h2><p class="muted small">Cada conta possui inventário, progresso e avisos próprios.</p></div>${btn('+ Nova conta','createAccount',{kind:'secondary'})}</div><div class="account-list">${accountsDb.accounts.map(a=>{const active=a.id===accountsDb.activeId,qty=arrInventory(a.data).reduce((n,e)=>n+e.qty,0);return `<div class="account-row ${active?'account-current':''}"><div class="account-row-info"><strong>${h(a.name)}</strong>${active?'<span class="account-active-tag">Ativa</span>':''}<small>Caminho ${a.data.path||'não definido'} · Ciclo ${a.data.cycle} · ${nf(qty)} droid(s)</small></div><div class="account-row-buttons">${!active?btn('Usar','activateAccount',{kind:'secondary',size:'small',attrs:`data-id="${h(a.id)}"` }):''}${btn('Renomear','renameAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"`})}${accountsDb.accounts.length>1?btn('Excluir','deleteAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"` }):''}</div></div>`}).join('')}</div><p class="mini-note">A última conta utilizada será aberta automaticamente. Para trocar de conta em qualquer tela, use o seletor no topo.</p></section>`}
-function settings(){let s=getStats();return titlePage('CONFIGURAÇÕES','Seus dados, sob seu controle','Sem cadastro. Tudo fica neste navegador e você pode fazer backup quando quiser.')+accountSettings()+`<div class="grid-3" style="margin-top:17px"><div class="card card-pad"><h3>⇩ Backup da conta ativa</h3><p class="muted small">Baixe apenas <strong>${h(currentAccount().name)}</strong>, com o nome no arquivo. Ao importar, o nome será mantido.</p>${btn('Baixar backup desta conta','exportActive',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇩ Backup completo</h3><p class="muted small">Salve todas as contas, seus nomes, inventários, ciclos e históricos em um único arquivo JSON.</p>${btn('Baixar todas as contas','export',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇧ Importar backup</h3><p class="muted small">Mantém o nome da conta do arquivo. Se já existir, perguntaremos antes de substituir; as demais contas serão preservadas.</p>${btn('Escolher arquivo','import',{kind:'secondary'})}</div></div><section class="card card-pad" style="margin-top:17px"><h3>Meu progresso</h3><div class="small muted">Caminho: <b>${state.path||'Não configurado'}</b> · Ciclo: <b>${state.cycle}</b> · Droids cadastrados: <b>${s.total}</b></div><div class="utility-bar">${state.path?`${btn('Corrigir ciclo','cycle',{kind:'secondary'})}${btn('Trocar de caminho','changePath',{kind:'ghost'})}`:btn('Configurar caminho','setup',{kind:'secondary'})}</div>${state.history.length?`<h4 class="subheading">Caminhos anteriores</h4>${state.history.slice(-5).reverse().map(x=>`<div class="details-line">Caminho ${h(x.path)} · Ciclo ${h(x.cycle)} <span class="small">${h(x.date||'')}</span></div>`).join('')}`:''}</section>${state.sales?.length?`<section class="card card-pad base-sales-history" style="margin-top:17px"><h3>Últimas vendas registradas</h3><p class="mini-note">Movimentações registradas pelo botão Registrar venda, nesta base ou nos detalhes.</p>${state.sales.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}${state.fusions?.genericHistory?.length?`<section class="card card-pad" style="margin-top:17px"><h3>Últimas fusões sugeridas realizadas</h3>${state.fusions.genericHistory.slice(-10).reverse().map(x=>`<div class="details-line"><span>${h(x.result)} · ${variantText(x.tier)}</span><b>${h(fusionKindName[x.kind])}</b></div>`).join('')}</section>`:''}${state.removals?.length?`<section class="card card-pad removal-history" style="margin-top:17px"><h3>Últimas retiradas do inventário</h3><p class="mini-note">Registros do botão “Não possuo mais”, por conta. Vendas e fusões têm registros separados.</p>${state.removals.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}<section class="card card-pad" style="margin-top:17px"><h3>Verificar fotos dos droids</h3><p class="small muted">Confira se as imagens dos 100 droids carregam na sua conexão. O teste não altera seu inventário.</p>${btn('Testar as 100 imagens','auditImages',{kind:'secondary'})}</section><section class="card card-pad" style="margin-top:17px"><h3>Privacidade e armazenamento</h3><p class="small muted">Os dados pessoais não são enviados ao Google Sheets nem ao GitHub. Eles ficam apenas no armazenamento deste navegador. Em outro aparelho, importe seu backup para continuar. Na navegação anônima ou após limpar dados do navegador, você pode perder informações sem backup.</p><div class="utility-bar">${btn('Conferir fonte dos requisitos','source',{kind:'ghost'})}${localStorage.getItem(ACCOUNTS_UNDO)?btn('Desfazer última restauração','undoRestore',{kind:'secondary'}):''}</div></section>`+footer();}
+function settings(){let s=getStats();return titlePage('CONFIGURAÇÕES','Seus dados, sob seu controle','Sem cadastro. Tudo fica neste navegador e você pode fazer backup quando quiser.')+accountSettings()+(window.DroidDrive?.panelHtml()||'')+`<div class="grid-3" style="margin-top:17px"><div class="card card-pad"><h3>⇩ Backup da conta ativa</h3><p class="muted small">Baixe apenas <strong>${h(currentAccount().name)}</strong>, com o nome no arquivo. Ao importar, o nome será mantido.</p>${btn('Baixar backup desta conta','exportActive',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇩ Backup completo</h3><p class="muted small">Salve todas as contas, seus nomes, inventários, ciclos e históricos em um único arquivo JSON.</p>${btn('Baixar todas as contas','export',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇧ Importar backup</h3><p class="muted small">Mantém o nome da conta do arquivo. Se já existir, perguntaremos antes de substituir; as demais contas serão preservadas.</p>${btn('Escolher arquivo','import',{kind:'secondary'})}</div></div><section class="card card-pad" style="margin-top:17px"><h3>Meu progresso</h3><div class="small muted">Caminho: <b>${state.path||'Não configurado'}</b> · Ciclo: <b>${state.cycle}</b> · Droids cadastrados: <b>${s.total}</b></div><div class="utility-bar">${state.path?`${btn('Corrigir ciclo','cycle',{kind:'secondary'})}${btn('Trocar de caminho','changePath',{kind:'ghost'})}`:btn('Configurar caminho','setup',{kind:'secondary'})}</div>${state.history.length?`<h4 class="subheading">Caminhos anteriores</h4>${state.history.slice(-5).reverse().map(x=>`<div class="details-line">Caminho ${h(x.path)} · Ciclo ${h(x.cycle)} <span class="small">${h(x.date||'')}</span></div>`).join('')}`:''}</section>${state.sales?.length?`<section class="card card-pad base-sales-history" style="margin-top:17px"><h3>Últimas vendas registradas</h3><p class="mini-note">Movimentações registradas pelo botão Registrar venda, nesta base ou nos detalhes.</p>${state.sales.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}${state.fusions?.genericHistory?.length?`<section class="card card-pad" style="margin-top:17px"><h3>Últimas fusões sugeridas realizadas</h3>${state.fusions.genericHistory.slice(-10).reverse().map(x=>`<div class="details-line"><span>${h(x.result)} · ${variantText(x.tier)}</span><b>${h(fusionKindName[x.kind])}</b></div>`).join('')}</section>`:''}${state.removals?.length?`<section class="card card-pad removal-history" style="margin-top:17px"><h3>Últimas retiradas do inventário</h3><p class="mini-note">Registros do botão “Não possuo mais”, por conta. Vendas e fusões têm registros separados.</p>${state.removals.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}<section class="card card-pad" style="margin-top:17px"><h3>Verificar fotos dos droids</h3><p class="small muted">Confira se as imagens dos 100 droids carregam na sua conexão. O teste não altera seu inventário.</p>${btn('Testar as 100 imagens','auditImages',{kind:'secondary'})}</section><section class="card card-pad" style="margin-top:17px"><h3>Privacidade e armazenamento</h3><p class="small muted">Os dados não são enviados ao Google Sheets nem ao GitHub. O inventário fica salvo neste navegador. Se você autorizar o Google Drive, uma cópia de backup também será enviada à sua conta Google. Em outro aparelho, conecte a mesma conta Google e restaure o backup. Na navegação anônima ou após limpar dados do navegador, você pode perder informações sem backup.</p><div class="utility-bar">${btn('Conferir fonte dos requisitos','source',{kind:'ghost'})}${localStorage.getItem(ACCOUNTS_UNDO)?btn('Desfazer última restauração','undoRestore',{kind:'secondary'}):''}</div></section>`+footer();}
 function footer(){return `<footer class="footer-note">Referência comunitária: <a href="${h(DB.source)}" target="_blank" rel="noopener noreferrer">Droidex · 6 caminhos</a> e <a href="${h(DB.catalogSource)}" target="_blank" rel="noopener noreferrer">Droid Tycoon Helper · 100 droids e chips</a>. Base ${h(DB.version)}. Informações de progressão podem mudar com atualizações do jogo. “Pode Vender” respeita as reservas de fusão, mas não considera renda nem coleção.</footer>`}
-function render(){if(storageError){app.innerHTML=`<div class="card card-pad"><h2>Armazenamento indisponível</h2><p>Não foi possível abrir suas contas: ${h(storageError)}. Seus dados antigos não foram apagados. Não faça novos cadastros neste momento; abra o site no navegador habitual ou restaure um backup em uma instalação funcional.</p></div>`;return}app.innerHTML=ui.tab==='dashboard'?dashboard():ui.tab==='search'?search():ui.tab==='inventory'?inventory():ui.tab==='pathlist'?fullPathChecklist():ui.tab==='fusion'?fusionPage():settings();accountHeader();document.querySelectorAll('[data-tab]').forEach(el=>{el.classList.toggle('active',el.dataset.tab===ui.tab);if(el.dataset.tab===ui.tab)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('top-breadcrumb').textContent={dashboard:'Meu caminho',search:'Consulta livre',inventory:'Minha Base',pathlist:'Lista do caminho',fusion:'Fusões especiais',settings:'Configurações'}[ui.tab];renderModal();renderDetail();}
+function render(){requireCountsCache=null;if(storageError){app.innerHTML=`<div class="card card-pad"><h2>Armazenamento indisponível</h2><p>Não foi possível abrir suas contas: ${h(storageError)}. Seus dados antigos não foram apagados. Não faça novos cadastros neste momento; abra o site no navegador habitual ou restaure um backup em uma instalação funcional.</p></div>`;return}app.innerHTML=ui.tab==='dashboard'?dashboard():ui.tab==='search'?search():ui.tab==='inventory'?inventory():ui.tab==='pathlist'?fullPathChecklist():ui.tab==='fusion'?fusionPage():settings();accountHeader();document.querySelectorAll('[data-tab]').forEach(el=>{el.classList.toggle('active',el.dataset.tab===ui.tab);if(el.dataset.tab===ui.tab)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('top-breadcrumb').textContent={dashboard:'Meu caminho',search:'Consulta livre',inventory:'Minha Base',pathlist:'Lista do caminho',fusion:'Fusões especiais',settings:'Configurações'}[ui.tab];renderModal();renderDetail();}
 function restoreInputFocus(id,position){const q=document.querySelector(`[data-input="${id}"]`);if(q){q.focus();if(q.setSelectionRange&&position!=null)try{q.setSelectionRange(position,position)}catch(e){}}}
 function openModal(kind,props={}){ui.modal={kind,...props};renderModal()}
 function modalWrap(title,subtitle,content,buttons){return `<div class="modal-backdrop" data-action="closeBackdrop"><div class="modal" role="dialog" aria-modal="true" aria-label="${h(title)}"><div class="modal-header"><div><h3>${h(title)}</h3><small>${h(subtitle||'')}</small></div><button class="close-btn" type="button" aria-label="Fechar" data-action="close">×</button></div><form id="modal-form" data-form="${h(ui.modal.kind)}"><div class="modal-body">${content}</div><div class="modal-footer">${btn('Cancelar','close',{kind:'ghost'})}${buttons}</div></form></div></div>`}
@@ -888,6 +991,8 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
   const drawer=document.querySelector('.drawer-scroll');if(drawer)drawer.scrollTop=scrollY;
   break;
  }
+ case 'fusionIdeaFilter':ui.fusionIdeaFilter=button.dataset.filter||'Todas';ui.fusionIdeaExpanded=false;render();break;
+ case 'fusionIdeaMore':ui.fusionIdeaExpanded=!ui.fusionIdeaExpanded;render();break;
  case 'genericReserve':{
   const idea=fusionSuggestions()[Number(button.dataset.idea)];
   if(!idea||!planIsFree(idea.parts))return notify('Esta combinação não está mais disponível.');
@@ -1017,5 +1122,13 @@ document.addEventListener('load',e=>{if(e.target.matches?.('img[data-site-logo]'
 document.querySelectorAll('img[data-site-logo]').forEach(img=>{if(img.complete&&img.naturalWidth)img.parentElement.classList.add('logo-loaded');else if(img.complete&&img.naturalWidth===0){img.hidden=true;img.parentElement.classList.add('logo-failed')}});
 document.addEventListener('error',e=>{if(e.target.matches('img[data-droid-img]')){e.target.hidden=true;e.target.parentElement.classList.add('img-failed')}if(e.target.matches('img[data-site-logo]')){e.target.hidden=true;e.target.parentElement.classList.add('logo-failed')}},true);
 if(!DB||CAT.length!==100||R.length!==720)alert('Erro: base de droids incompleta. Atualize os arquivos do site.');
-render();
+// A integração usa os mesmos backups schema 2 e a importação existente,
+ // que pede confirmação antes de substituir contas com nomes coincidentes.
+ window.DroidDrive?.init({
+  snapshot(){const a=currentAccount();a.data=state;a.notices=unreadNotices;return JSON.parse(JSON.stringify(accountsDb))},
+  validate(raw){try{sanitizeAccounts(raw);return true}catch(e){return false}},
+  importCloud(raw){openModal('restore',{format:'multi',preview:sanitizeAccounts(raw)})},
+  toast(message){notify(message)}
+ });
+ render();
 })();
