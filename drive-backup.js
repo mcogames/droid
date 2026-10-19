@@ -1,7 +1,10 @@
-/* Droid Tycoon v23 — sincronização cuidadosa entre dispositivos via Google Drive appDataFolder.
-   Nenhum token ou senha é persistido. Divergência na mesma conta exige decisão explícita. */
+/* Droid Tycoon v24 — sincronização entre dispositivos via Google Drive appDataFolder.
+   O token OAuth de curta duração permanece somente em sessionStorage para sobreviver ao F5
+   na mesma aba. Não usamos localStorage para tokens, nem refresh tokens, senhas ou Client Secret.
+   Divergência na mesma conta exige decisão explícita. */
 (()=>{'use strict';
  const CLIENT_STORE='droidtycoon_google_oauth_client_id_v1';
+ const TAB_TOKEN_STORE='droidtycoon_drive_tab_token_v24';
  const CLOUD_NAME='droid-tycoon-todas-contas.json';
  const BASE_PREFIX='droidtycoon_sync_baseline_v23_';
  const SCOPE='https://www.googleapis.com/auth/drive.appdata';
@@ -13,12 +16,28 @@
  const configured=()=>document.querySelector('meta[name="droid-google-client-id"]')?.content?.trim()||'';
  const validId=v=>/^[0-9]+-[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/.test(String(v||'').trim());
  try{d.clientId=validId(configured())?configured():localStorage.getItem(CLIENT_STORE)||'';}catch(e){d.clientId=validId(configured())?configured():'';}
+ // Token efêmero, guardado apenas para recargas desta aba; nunca em localStorage.
+ function forgetTabToken(){try{sessionStorage.removeItem(TAB_TOKEN_STORE)}catch(e){}}
+ function rememberTabToken(){
+  if(!activeToken())return forgetTabToken();
+  try{sessionStorage.setItem(TAB_TOKEN_STORE,JSON.stringify({clientId:d.clientId,accessToken:d.token,expiresAt:d.expiresAt,scope:SCOPE}))}catch(e){}
+ }
+ function restoreTabToken(){
+  try{
+   const raw=sessionStorage.getItem(TAB_TOKEN_STORE);if(!raw)return false;
+   const prior=JSON.parse(raw);
+   if(prior.clientId!==d.clientId||!prior.scope?.split(/\s+/).includes(SCOPE)||
+      typeof prior.accessToken!=='string'||!prior.accessToken||
+      !Number.isFinite(prior.expiresAt)||Date.now()>=prior.expiresAt-90000){forgetTabToken();return false}
+   d.token=prior.accessToken;d.expiresAt=prior.expiresAt;d.connected=true;d.auto=true;return true;
+  }catch(e){forgetTabToken();return false}
+ }
  const activeToken=()=>!!d.token&&Date.now()<d.expiresAt-90000;
- function token(){if(!d.connected||!activeToken()){d.auto=false;throw new Error('A autorização do Google expirou. Conecte novamente para sincronizar.')}return d.token}
+ function token(){if(!d.connected||!activeToken()){d.auto=false;forgetTabToken();throw new Error('A autorização do Google expirou. Conecte novamente para sincronizar.')}return d.token}
  async function api(url,opts={}){
   const r=await fetch(url,{...opts,headers:{Authorization:'Bearer '+token(),...opts.headers},cache:'no-store'});
   if(!r.ok){let reason='';try{const p=await r.json();reason=p?.error?.message||''}catch(e){}
-   if(r.status===401){d.token='';d.connected=false;d.auto=false;}
+   if(r.status===401){d.token='';d.connected=false;d.auto=false;forgetTabToken();}
    throw new Error('Google Drive HTTP '+r.status+(reason?': '+reason:''));}
   return r.json();
  }
@@ -69,7 +88,7 @@
        `<button type="button" class="btn" data-drive-action="remote" ${!d.remote||d.busy?'disabled':''}>Trazer dados do Drive</button><button type="button" class="btn secondary" data-drive-action="local" ${d.busy?'disabled':''}>Usar dados deste aparelho</button>${d.remote?`<button type="button" class="btn secondary" data-drive-action="merge" ${d.busy?'disabled':''}>Importar contas separadamente</button>`:''}`}
       <button type="button" class="btn ghost" data-drive-action="disconnect" ${d.busy?'disabled':''}>Desconectar</button>`}
    </div>
-   <p class="mini-note">Com o site aberto e autorizado, busca mudanças de outros aparelhos a cada 45 segundos e envia as alterações locais após alguns segundos. Se duas pessoas alterarem a <strong>mesma conta</strong> antes de sincronizar, a sincronização pausa e pede sua escolha. Não apague seu backup JSON de segurança.</p>
+   <p class="mini-note">A conexão é mantida ao atualizar esta aba (F5) enquanto a autorização temporária estiver válida. Quando expirar ou a sessão for encerrada, clique em Conectar ao Google novamente. Com o site aberto e autorizado, busca mudanças de outros aparelhos a cada 45 segundos e envia alterações locais após alguns segundos. Alterações simultâneas na <strong>mesma conta</strong> exigem sua escolha. Não apague seu backup JSON de segurança.</p>
   </section>`;
  }
  function updatePanel(){
@@ -116,7 +135,7 @@
   return api(UPLOAD_ROOT+'?uploadType=multipart&fields=id,name,modifiedTime,version,size',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary},body});
  }
  async function sync(){
-  if(!d.connected||!activeToken()){d.auto=false;updatePanel();return}
+  if(!d.connected||!activeToken()){d.auto=false;forgetTabToken();updatePanel();return}
   if(d.busy){d.pending=true;return}
   if(!d.auto&&d.reason)return;
   d.busy=true;d.pending=false;d.lastError='';updatePanel();
@@ -162,9 +181,10 @@
   try{
    d.tokenClient=google.accounts.oauth2.initTokenClient({client_id:d.clientId,scope:SCOPE,callback:async response=>{
     if(!response?.access_token||!String(response.scope||'').includes(SCOPE))return report('A permissão para o Google Drive não foi autorizada.');
-    d.token=response.access_token;d.expiresAt=Date.now()+Number(response.expires_in||3600)*1000;d.connected=true;d.lastError='';d.reason='';d.base=null;d.remote=null;d.auto=true;updatePanel();startPoll();await sync();
+    d.token=response.access_token;d.expiresAt=Date.now()+Number(response.expires_in||3600)*1000;d.connected=true;d.lastError='';d.reason='';d.base=null;d.remote=null;d.auto=true;rememberTabToken();updatePanel();startPoll();await sync();
    },error_callback:()=>report('Janela de autorização Google fechada ou bloqueada.')});
-   d.tokenClient.requestAccessToken({prompt:'consent'});
+   // Não exigir novo consentimento a cada reconexão. O Google pedirá acesso se necessário.
+   d.tokenClient.requestAccessToken({prompt:''});
   }catch(e){report(e)}
  }
  async function useRemote(){
@@ -198,11 +218,11 @@
    keepBase(meta,await index(incoming.remote));d.remote=meta;d.reason='';d.auto=true;d.lastError='';noteLocalChange();updatePanel();
   }catch(e){report(e)}
  }
- function disconnect(){cancelTimer();stopPoll();d.token='';d.connected=false;d.auto=false;d.remote=null;d.base=null;d.loadingCloud=null;d.expiresAt=0;d.lastSaved='';d.reason='';d.lastError='';updatePanel()}
+ function disconnect(){cancelTimer();stopPoll();forgetTabToken();d.token='';d.connected=false;d.auto=false;d.remote=null;d.base=null;d.loadingCloud=null;d.expiresAt=0;d.lastSaved='';d.reason='';d.lastError='';updatePanel()}
  function configure(){const id=document.getElementById('drive-client-id')?.value?.trim()||'';if(!validId(id))return report('Client ID inválido.');try{localStorage.setItem(CLIENT_STORE,id)}catch(e){return report('Não foi possível salvar o Client ID.')};d.clientId=id;d.lastError='';updatePanel()}
  async function action(a){switch(a){case 'configure':configure();break;case 'connect':await connect();break;case 'sync':await sync();break;case 'remote':await useRemote();break;case 'local':await useLocal();break;case 'merge':await importByAccount();break;case 'disconnect':disconnect();break;}}
  document.addEventListener('click',e=>{const b=e.target.closest('[data-drive-action]');if(b){e.preventDefault();void action(b.dataset.driveAction)}});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&d.connected&&d.auto)void sync()});
- window.DroidDrive={init(host){d.host=host},panelHtml,noteLocalChange,onCloudImportComplete:cloudImportDone,
+ window.DroidDrive={init(host){d.host=host;if(restoreTabToken()){startPoll();Promise.resolve().then(()=>{updatePanel();void sync()})}},panelHtml,noteLocalChange,onCloudImportComplete:cloudImportDone,
   debugState:()=>({connected:d.connected,auto:d.auto,busy:d.busy,reason:d.reason,conflicts:[...d.conflicts],remote:d.remote?{...d.remote}:null,lastError:d.lastError,lastSaved:d.lastSaved})};
 })();
