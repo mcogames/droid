@@ -646,3 +646,10 @@ select.variant-select option{background:#111f32;color:#e0e8f2}
  #base-owned,#basemissing,#fusionideas{scroll-margin-top:210px}
  .base-fusion-accordion .section-body{padding:12px}
 }
+
+/* v26 — avisos de evolução com contraste alto, sem alterar cards ou navegação */
+.evolution-keep{color:#f3c96b;font-weight:800;font-size:12px}
+.evolution-drawer-advice{background:#263124;border:1px solid #77633b;border-radius:12px;padding:12px 13px;margin-top:12px;display:grid;gap:7px;font-size:12px;line-height:1.6}
+.evolution-drawer-advice>strong{color:#f3c96b;font-size:13px}
+.evolution-drawer-advice small{color:#c4cfdd;line-height:1.5}
+.base-missing-variant small{font-size:11px;color:#c6d0dc}

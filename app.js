@@ -1,4 +1,4 @@
-/* Droid Tycoon — v21: Backup no Google Drive + fusoes inteligentes com excedentes reais. */
+/* Droid Tycoon — v26: protege variantes inferiores necessárias para evolução. */
 (()=>{'use strict';
 const DB=window.DROID_DB;
 const STORE='droidtycoon_local_v1', RESTORE='droidtycoon_restore_undo_v1', NOTICE_KEY='droidtycoon_sale_notices_v2';
@@ -177,25 +177,42 @@ function fusionPlanNeeds(skip=''){
 // Um droid pode servir em vários ciclos; suas unidades não são consumidas entre ciclos.
 // Calculamos a quantidade máxima de requisitos que as unidades atuais conseguem satisfazer
 // em CADA ciclo futuro. Só é excedente o que pode sair sem reduzir essa cobertura.
+// Um exemplar de variante inferior também pode cumprir um requisito futuro APÓS evoluir.
+// A cobertura potencial protege o droid para evolução; NÃO marca o ciclo como concluído.
+// Droids de ciclos diferentes são reutilizados, então contamos cada ciclo em separado.
 function futureCycleCoverage(name,remaining){
  if(!state.path)return [];
- const cycles=new Map(),tiers=byName[name]?.rarity==='Iconic'?['Única']:T;
- for(const req of reqFor(name)){
-  if(!cycles.has(req.c))cycles.set(req.c,[]);
-  cycles.get(req.c).push(req.tier);
- }
- return [...cycles.values()].map(required=>{
-  const free=tiers.map(t=>Math.max(0,remaining[t]||0));
-  let matched=0;
-  // Começamos pela variante mais exigente para não desperdiçar um Kyber numa
-  // exigência Padrão que poderia ser atendida por uma unidade inferior.
-  for(const tier of required.sort((a,b)=>tiers.indexOf(b)-tiers.indexOf(a))){
-   const minimum=tiers.indexOf(tier);
-   if(minimum<0)continue;
-   for(let i=minimum;i<tiers.length;i++)if(free[i]>0){free[i]--;matched++;break}
+ const total=Object.values(remaining).reduce((sum,qty)=>sum+Math.max(0,qty||0),0);
+ const byCycle=new Map();
+ for(const r of reqFor(name))byCycle.set(r.c,(byCycle.get(r.c)||0)+1);
+ return [...byCycle.values()].map(required=>Math.min(total,required));
+}
+// Planejamento conservador de evolução: obtém o pico de demanda por limiar de
+// variante, sem somar ciclos distintos; atribui primeiro o melhor droid disponível
+// a cada requisito mais exigente. Retorna separadamente evoluções e novos droids.
+function futureEvolutionPlan(name,owned){
+ if(!state.path)return {upgrades:[],missing:[]};
+ const requests=reqFor(name);
+ if(!requests.length)return {upgrades:[],missing:[]};
+ const levels=byName[name]?.rarity==='Iconic'?['Única']:T;
+ const byCycle=new Map();
+ for(const r of requests){if(!byCycle.has(r.c))byCycle.set(r.c,[]);byCycle.get(r.c).push(r.tier)}
+ const peaks=levels.map((tier,i)=>Math.max(...[...byCycle.values()].map(reqs=>reqs.filter(t=>levels.indexOf(t)>=i).length)));
+ const stock=levels.map(tier=>({tier,qty:Math.max(0,owned[tier]||0)}));
+ const upgrades=[],missing=[];
+ for(let i=levels.length-1;i>=0;i--){
+  const target=levels[i],demand=peaks[i]-(peaks[i+1]||0);
+  const firstCycle=requests.find(r=>r.tier===target)?.c||requests[0].c;
+  for(let j=0;j<demand;j++){
+   // Maior variante suficiente é desnecessária quando outra menor já atende.
+   let available=stock.findIndex((x,k)=>k>=i&&x.qty>0);
+   if(available<0){for(let k=i-1;k>=0;k--)if(stock[k].qty>0){available=k;break}}
+   if(available<0){const last=missing.find(x=>x.tier===target);if(last)last.qty++;else missing.push({tier:target,qty:1,cycles:[firstCycle]});continue}
+   stock[available].qty--;
+   if(available<i){const from=levels[available],last=upgrades.find(x=>x.from===from&&x.to===target);if(last)last.qty++;else upgrades.push({from,to:target,qty:1,cycle:firstCycle});}
   }
-  return matched;
- });
+ }
+ return {upgrades,missing};
 }
 let requireCountsCache=null;
 function requireCounts(){
@@ -210,8 +227,9 @@ function requireCounts(){
    fixed[row.tier]=fusion;remainder[row.tier]=row.qty-fusion;
   }
   const baseline=state.path?futureCycleCoverage(name,remainder):[];
-  // Venda prioritária das variantes baixas; mantém as superiores que podem
-  // substituir as inferiores nos ciclos ainda não concluídos.
+  const keepStart=protectedEntries.length;
+  // Vende primeiro as variantes inferiores; protege todas as unidades que
+  // possam ser evoluídas para cobrir exigências futuras ainda descobertas.
   for(const row of [...rows].sort((a,b)=>rank(a.tier)-rank(b.tier))){
    const tier=row.tier,free=remainder[tier];let sell=0;
    if(state.path){
@@ -228,6 +246,12 @@ function requireCounts(){
    const fusionQty=fixed[tier]||0,pathQty=free-sell,kept=fusionQty+pathQty;
    if(kept)protectedEntries.push({...row,qty:kept,fusionQty,pathQty,current:!!state.path&&needAt(name,state.path,state.cycle).length>0,requirements:reqFor(name)});
    if(sell)saleEntries.push({...row,qty:sell});
+  }
+  // Somente as unidades não reservadas para fusões entram no plano de evolução.
+  const plan=futureEvolutionPlan(name,remainder);
+  for(const kept of protectedEntries.slice(keepStart)){
+   kept.upgrades=plan.upgrades.filter(x=>x.from===kept.tier);
+   kept.upgradeQty=kept.upgrades.reduce((n,x)=>n+x.qty,0);
   }
  }
  return (requireCountsCache={protectedEntries,saleEntries});
@@ -251,10 +275,13 @@ function entryInventory(e,baseQuickSale=false){
  // Destaque visual só para o aviso de ciclo futuro; o nome da variante permanece legível.
  const futureHtml=nextCycle?`<strong class="future-cycle-emphasis">Precisa no Ciclo <span class="future-cycle-number">${h(nextCycle.c)}</span></strong><span class="future-variant-text"> — Variante ${variantText(nextCycle.tier)}</span>`:'';
  const fusionReserved=requireCounts().protectedEntries.find(x=>x.name===e.name&&x.tier===e.tier)?.fusionQty||0;
+ const keptRow=requireCounts().protectedEntries.find(x=>x.name===e.name&&x.tier===e.tier);
+ const upgrade=keptRow?.upgrades?.[0];
+ const upgradeText=upgrade?`<strong class="evolution-keep">Guardar para evoluir ${nf(keptRow.upgradeQty)}×</strong> · ${variantText(e.tier)} → ${variantText(upgrade.to)} · Ciclo <b>${upgrade.cycle}</b>`:'';
  const status=split.keep?(now?'Necessário agora':future||'Reservado para fusão / guardar'):'Pode Vender';
- const statusHtml=split.keep&&!now&&nextCycle?futureHtml:h(status);
+ const statusHtml=upgradeText ? upgradeText : (split.keep&&!now&&nextCycle ? futureHtml : h(status));
  // A ação de venda fica FORA do botão que abre detalhes: evita dois cliques concorrentes.
- const sellQuick=baseQuickSale?`<div class="base-quick-actions"><button type="button" class="base-sell-one" data-action="sellOne" data-name="${h(e.name)}" data-tier="${h(e.tier)}" title="Registrar a venda de 1 unidade no jogo e atualizar a base imediatamente" aria-label="Registrar venda de 1 unidade de ${h(e.name)} ${h(variantLabel(e.tier))}">Registrar venda</button>${fusionReserved?'<small class="base-risk" title="Há reserva ativa para fusão">⚗ Reservado para fusão</small>':split.keep?'<small class="base-risk" title="Pode ser necessário no seu caminho">⚠ Necessário no caminho</small>':''}</div>`:'';
+ const sellQuick=baseQuickSale?`<div class="base-quick-actions"><button type="button" class="base-sell-one" data-action="sellOne" data-name="${h(e.name)}" data-tier="${h(e.tier)}" title="Registrar a venda de 1 unidade no jogo e atualizar a base imediatamente" aria-label="Registrar venda de 1 unidade de ${h(e.name)} ${h(variantLabel(e.tier))}">Registrar venda</button>${fusionReserved?'<small class="base-risk" title="Há reserva ativa para fusão">⚗ Reservado para fusão</small>':upgrade?'<small class="base-risk" title="Esta variante será necessária para evoluir">⚠ Guardar para evoluir</small>':split.keep?'<small class="base-risk" title="Pode ser necessário no seu caminho">⚠ Necessário no caminho</small>':''}</div>`:'';
  return `<div class="entry droid-entry ${baseQuickSale?'base-owned-row':''}"><button type="button" ${panelButton(e.name,e.tier)}>${imageOf(e.name,false,e.tier)}<span class="droid-info"><span class="droid-heading">${h(e.name)} ${rarityTag(byName[e.name]?.rarity)} ${variantBadge(e.tier)}</span><span class="entry-sub">${nf(e.qty)} unidade(s) · ${statusHtml}</span>${split.keep&&now&&future?`<span class="entry-sub future-line">${futureHtml}</span>`:''}<span class="quantities">${split.keep?`<span class="keep-label">Guardar ${split.keep}</span>`:''}${fusionReserved?`<span class="fusion-keep-label">Fusão ${fusionReserved}</span>`:''}${split.sell?`<span class="sell-label">Pode Vender ${split.sell}</span>`:''}${FUSION_INGREDIENTS[e.name]?.length?`<span class="fusion-keep-label">⚗ Fusão especial · ${FUSION_INGREDIENTS[e.name].length}</span>`:''}</span></span>${!baseQuickSale?'<span class="entry-arrow">›</span>':''}</button>${sellQuick}</div>`;
 }
 function requirementRow(r){const count=meets(r.name,r.tier),currBest=best(r.name),owned=anyOwned(r.name),isAbsent=state.absent[r.name]===true,good=count>=needAt(r.name,state.path,state.cycle).length;
@@ -274,7 +301,7 @@ function dashboard(){if(!state.path)return setup();const stat=getStats(),require
  const groups=`${b.confirmed.length?`<div class="group-caption warn">Pendências confirmadas · ${b.confirmed.length}</div>${b.confirmed.map(requirementRow).join('')}`:''}${b.unknown.length?`<div class="group-caption">Ainda precisa conferir · ${b.unknown.length}</div>${b.unknown.map(requirementRow).join('')}`:''}${!b.confirmed.length&&!b.unknown.length?`<div class="success-state">✓ Todos os requisitos deste ciclo foram confirmados.</div>`:''}`;
  const pendingSection=section('pending','◎','Pendências do Ciclo',`${stat.pending} pendência(s) · ${stat.unknown} para conferir`,stat.pending+stat.unknown,groups);
  const newBlock=recent.length?`<div class="new-sales-note"><div class="notice-header"><b>✧ ${recent.reduce((a,x)=>a+x.qty,0)} unidade(s) recém-liberada(s)</b>${btn('Marcar como lido','readSales',{kind:'ghost',size:'small'})}</div>${recent.map(x=>`<div class="notice-row">${h(x.name)} · ${variantText(x.tier)} <span>${x.qty} nova(s)</span></div>`).join('')}</div>`:'';
- const sellSection=section('sell','↗','Pode Vender','Excedentes após caminho e reservas para fusões',recent.length?`${stat.sale} · ${recent.reduce((n,x)=>n+x.qty,0)} novos`:stat.sale,`${newBlock}${stat.anal.saleEntries.length?arrInventory(state).filter(e=>calcRowCounts(e.name,e.tier).sell>0).map(entryInventory).join(''):'<div class="empty">Nenhuma unidade disponível para venda.</div>'}<div class="hint" style="margin-top:12px">“Pode Vender” considera suas reservas de fusão, mas não considera renda nem coleção.</div>`);
+ const sellSection=section('sell','↗','Pode Vender','Excedentes após caminho e reservas para fusões',recent.length?`${stat.sale} · ${recent.reduce((n,x)=>n+x.qty,0)} novos`:stat.sale,`${newBlock}${stat.anal.saleEntries.length?arrInventory(state).filter(e=>calcRowCounts(e.name,e.tier).sell>0).map(entryInventory).join(''):'<div class="empty">Nenhuma unidade disponível para venda.</div>'}<div class="hint" style="margin-top:12px">“Pode Vender” protege também os droids que precisam ser evoluídos para os próximos ciclos e suas reservas de fusão. Não considera renda nem coleção.</div>`);
  const keepSection=section('keep','♧','Guardar para o futuro','Unidades protegidas para o caminho e fusões',stat.protected,stat.inventory.filter(e=>calcRowCounts(e.name,e.tier).keep>0).map(entryInventory).join('')||'<div class="empty">Nenhuma unidade protegida.</div>');
  const invenSection=section('inventory','▤','Minha Base','Droids que você possui atualmente',stat.total,`${stat.inventory.length?stat.inventory.map(entryInventory).join(''):'<div class="empty">Nenhum droid cadastrado.</div>'}<div class="utility-bar">${btn('Abrir catálogo completo','openinventory',{kind:'secondary'})}</div>`);
  return heading+prog+stats+`<div class="dashboard-columns">${pendingSection}${sellSection}</div>`+keepSection+invenSection+footer();
@@ -382,50 +409,33 @@ function missingBaseRequirements(){
  const group=new Map();
  for(const r of R){
   if(r.p!==state.path||r.c<state.cycle)continue;
-  if(!group.has(r.name))group.set(r.name,{name:r.name,cycles:new Map(),requirements:[]});
-  const entry=group.get(r.name);
-  if(!entry.cycles.has(r.c))entry.cycles.set(r.c,[]);
-  entry.cycles.get(r.c).push(r.tier);
-  entry.requirements.push(r);
+  if(!group.has(r.name))group.set(r.name,{name:r.name,requirements:[]});
+  group.get(r.name).requirements.push(r);
  }
- const missing=[];
+ const rows=[],reserved=fusionPlanNeeds();
  for(const row of group.values()){
-  const iconic=byName[row.name]?.rarity==='Iconic';
   const owned=state.inventory[row.name]||{};
-  const levels=iconic?['Única']:T;
-  const deficit=[];
-  let acquiredHigher=0;
-  // Cada limiar precisa estar coberto pelo estoque da mesma variante ou superior.
-  for(let i=levels.length-1;i>=0;i--){
-   const atLeast=tiers=>tiers.filter(t=>iconic||rank(t)>=i).length;
-   const peak=Math.max(...[...row.cycles.values()].map(atLeast));
-   const inBase=iconic?(owned['Única']||0):Object.entries(owned).reduce((sum,[tier,qty])=>sum+(rank(tier)>=i?qty:0),0);
-   const shortage=Math.max(0,peak-inBase-acquiredHigher);
-   if(shortage){
-    const variant=levels[i];
-    const relatedCycles=[...new Set(row.requirements.filter(r=>r.tier===variant).map(r=>r.c))].sort((a,b)=>a-b);
-    deficit.push({tier:variant,qty:shortage,cycles:relatedCycles});
-    acquiredHigher+=shortage;
-   }
-  }
-  if(!deficit.length)continue;
+  const free=Object.fromEntries(Object.entries(owned).map(([tier,qty])=>[tier,Math.max(0,qty-(reserved[nextId(row.name,tier)]||0))]));
+  const {missing:deficit,upgrades}=futureEvolutionPlan(row.name,free);
+  if(!deficit.length&&!upgrades.length)continue;
   row.requirements.sort((a,b)=>a.c-b.c||rank(b.tier)-rank(a.tier));
   const existing=Object.entries(owned).filter(([,qty])=>qty>0).sort((a,b)=>rank(b[0])-rank(a[0]));
-  missing.push({name:row.name,deficit,existing,firstCycle:row.requirements[0].c,requirements:row.requirements});
+  rows.push({name:row.name,deficit,upgrades,existing,firstCycle:row.requirements[0].c,requirements:row.requirements});
  }
- return missing.sort((a,b)=>a.firstCycle-b.firstCycle||a.name.localeCompare(b.name,'pt-BR'));
+ return rows.sort((a,b)=>a.firstCycle-b.firstCycle||a.name.localeCompare(b.name,'pt-BR'));
 }
 function missingBasePanel(){
  if(!state.path)return '';
  const list=missingBaseRequirements();
- const count=list.reduce((sum,item)=>sum+item.deficit.reduce((n,d)=>n+d.qty,0),0);
+ const missingCount=list.reduce((sum,item)=>sum+item.deficit.reduce((n,d)=>n+d.qty,0),0);
+ const upgradeCount=list.reduce((sum,item)=>sum+item.upgrades.reduce((n,u)=>n+u.qty,0),0);
  const cards=ui.open.has('basemissing')?list.map(item=>{
   const earliest=item.firstCycle;
   const own=item.existing.length?`<span class="base-missing-owned">Na base: ${item.existing.map(([tier,qty])=>`${nf(qty)} × ${variantText(tier)}`).join(' · ')}</span>`:'<span class="base-missing-owned">Ainda não possui nenhuma variante</span>';
   const requirements=[...new Map(item.requirements.map(r=>[`${r.c}:${r.tier}`,r])).values()].map(r=>`<span class="base-missing-cycle">Ciclo <b>${r.c}</b> · ${variantText(r.tier)}</span>`).join('');
-  return `<article class="base-missing-item"><div class="base-missing-head"><button type="button" ${panelButton(item.name,'','path-droid-link')}>${imageOf(item.name,false,item.deficit[0].tier)}<span class="droid-info"><span class="droid-heading">${h(item.name)} ${rarityTag(byName[item.name]?.rarity)}</span><span class="entry-sub">Próxima exigência no ciclo <strong>${earliest}</strong></span></span></button></div><div class="base-missing-need"><span class="base-missing-label">Falta na base:</span>${item.deficit.map(d=>`<div class="base-missing-variant">${variantBadge(d.tier)} <b>${nf(d.qty)} unidade(s)</b> ${btn('+ Cadastrar','add',{kind:'secondary',size:'small',attrs:`data-name="${h(item.name)}" data-tier="${h(d.tier)}"`})}</div>`).join('')}</div><div class="base-missing-cycles"><span class="base-missing-label">Ciclos e variantes exigidos:</span><div class="base-missing-cycle-list">${requirements}</div></div>${own}</article>`;
+  return `<article class="base-missing-item"><div class="base-missing-head"><button type="button" ${panelButton(item.name,'','path-droid-link')}>${imageOf(item.name,false,item.deficit[0]?.tier||item.upgrades[0]?.to||'Default')}<span class="droid-info"><span class="droid-heading">${h(item.name)} ${rarityTag(byName[item.name]?.rarity)}</span><span class="entry-sub">Próxima exigência no ciclo <strong>${earliest}</strong></span></span></button></div><div class="base-missing-need">${item.upgrades.length?`<span class="base-missing-label evolution-keep">Já possui — guardar para evoluir:</span>${item.upgrades.map(u=>`<div class="base-missing-variant"><span class="evolution-keep">${nf(u.qty)}×</span> ${variantBadge(u.from)} → ${variantBadge(u.to)} <small>· Ciclo ${u.cycle}</small> ${btn('Evoluir','evolve',{kind:'secondary',size:'small',attrs:`data-name="${h(item.name)}" data-tier="${h(u.from)}" data-to="${h(u.to)}"`})}</div>`).join('')}`:''}${item.deficit.length?`<span class="base-missing-label">Ainda precisa conseguir:</span>${item.deficit.map(d=>`<div class="base-missing-variant">${variantBadge(d.tier)} <b>${nf(d.qty)} unidade(s)</b> ${btn('+ Cadastrar','add',{kind:'secondary',size:'small',attrs:`data-name="${h(item.name)}" data-tier="${h(d.tier)}"`})}</div>`).join('')}`:''}</div><div class="base-missing-cycles"><span class="base-missing-label">Ciclos e variantes exigidos:</span><div class="base-missing-cycle-list">${requirements}</div></div>${own}</article>`;
  }).join(''):'';
- return section('basemissing','◈','Droids que ainda preciso',`Caminho ${state.path} · do ciclo ${state.cycle} ao 40`,`${nf(list.length)} droids`,list.length?`<div class="base-missing-intro">Faltam <strong>${nf(count)} unidade(s)</strong> distribuídas em <strong>${nf(list.length)} droid(s)</strong>. A lista considera as variantes que você já possui: uma variante superior também atende às inferiores. Os droids são reutilizados entre ciclos.</div><div class="base-missing-list">${cards}</div>`:'<div class="success-state">✓ Sua base já atende aos requisitos de droids dos ciclos restantes deste caminho.</div>');
+ return section('basemissing','◈','Droids que ainda preciso',`Caminho ${state.path} · do ciclo ${state.cycle} ao 40`,`${nf(list.length)} droids`,list.length?`<div class="base-missing-intro">Para os ciclos restantes: <strong>${nf(upgradeCount)} unidade(s) para evoluir</strong> e <strong>${nf(missingCount)} para conseguir</strong>, em <strong>${nf(list.length)} droid(s)</strong>. Variantes inferiores são aproveitadas como base de evolução; variantes superiores atendem às menores. Registrar a evolução continua necessário para concluir o ciclo.</div><div class="base-missing-list">${cards}</div>`:'<div class="success-state">✓ Sua base já atende às variantes exigidas nos ciclos restantes deste caminho.</div>');
 }
 function inventory(){
  const s=getStats(),isAll=ui.inventoryScope==='all';
@@ -601,7 +611,7 @@ function fusionSuggestionsPanel(){
  const visible=ideas.map((idea,index)=>({idea,index})).filter(({idea})=>filter==='Todas'||idea.kind===filter);
  const limit=ui.fusionIdeaExpanded?60:12;
  const cards=visible.slice(0,limit).map(({idea,index})=>`<article class="smart-fusion-card"><div class="smart-fusion-meta"><b>${h(fusionKindName[idea.kind])}</b>${idea.kind==='special'?badge('Exclusiva','blue'):''}</div><div class="smart-fusion-parts">${fusionPartsSummary(idea.parts)}</div><div class="smart-fusion-outcome">→ ${idea.result.random?`1 ${h(rarityLabel(idea.result.rarity))} aleatório`:`1 ${h(idea.result.name)}`} · ${variantText(idea.result.tier)}</div><div class="smart-fusion-actions">${btn('Guardar para fusão','genericReserve',{kind:'secondary',size:'small',attrs:`data-idea="${index}"`})}${btn('Já fiz esta fusão','genericMakeNow',{kind:'ghost',size:'small',attrs:`data-idea="${index}"`})}</div></article>`).join('');
- return section('fusionideas','⚗','Sugestões de fusão','Combinações possíveis com excedentes',`${ideas.length} sugestões`, `<div class="base-fusion-panel"><p class="mini-note">Analisa todos os droids excedentes e as variantes disponíveis, sem consumir unidades necessárias no caminho ou reservadas.</p>
+ return section('fusionideas','⚗','Sugestões de fusão','Combinações possíveis com excedentes',`${ideas.length} sugestões`, `<div class="base-fusion-panel"><p class="mini-note">Analisa os excedentes, protegendo também droids que precisam ser evoluídos para requisitos futuros e unidades reservadas.</p>
  ${saved?`<h3 class="smart-fusion-subtitle">Ingredientes que você reservou</h3><div class="smart-fusion-grid">${saved}</div>`:''}
  <div class="filter-row smart-fusion-filters" role="group" aria-label="Filtrar sugestões de fusão">
   ${[['Todas','Todas'],['rarity','Evoluir raridade'],['variant','Evoluir variante'],['mythic','Evoluir Mítico'],['special','Fusões especiais']].map(([value,label])=>`<button type="button" class="btn small ${filter===value?'outline-green':'ghost'}" data-action="fusionIdeaFilter" data-filter="${value}" aria-pressed="${filter===value}">${label}</button>`).join('')}
@@ -632,23 +642,17 @@ function fusionAvailability(recipe,tiers){
 }
 function fusionRisks(recipe,tiers){
  if(!state.path)return [];
- // Considera o consumo dos três ingredientes simultaneamente, inclusive cópias do mesmo droid.
- const consumed={},risk=new Set();
- recipe.parts.forEach((name,i)=>{const key=nextId(name,tiers[i]);consumed[key]=(consumed[key]||0)+1;});
+ const consumed={},risk=[];
+ recipe.parts.forEach((name,i)=>{const key=nextId(name,tiers[i]);consumed[key]=(consumed[key]||0)+1});
  for(const name of new Set(recipe.parts)){
-  const remaining={...(state.inventory[name]||{})};
+  const before={...(state.inventory[name]||{})},after={...before};
   for(const [key,qty] of Object.entries(consumed))if(key.startsWith(name+'::')){
-   const tier=key.slice(name.length+2);remaining[tier]=(remaining[tier]||0)-qty;
+   const tier=key.slice(name.length+2);after[tier]=Math.max(0,(after[tier]||0)-qty);
   }
-  const byCycle={};for(const r of reqFor(name))(byCycle[r.c]??=[]).push(r);
-  for(const [cycle,list] of Object.entries(byCycle)){
-   if(list.some(r=>{
-    const available=Object.entries(remaining).reduce((n,[t,q])=>n+(rank(t)>=rank(r.tier)?Math.max(q,0):0),0);
-    return available<list.filter(x=>rank(x.tier)>=rank(r.tier)).length;
-   })){risk.add(`${name} (ciclo ${cycle})`);break;}
-  }
+  const current=futureCycleCoverage(name,before),remaining=futureCycleCoverage(name,after);
+  if(remaining.some((amount,index)=>amount<current[index]))risk.push(`${name} (necessário para o caminho, inclusive evolução)`);
  }
- return [...risk];
+ return risk;
 }
 function fusionIngredientText(recipe){const count={};for(const n of recipe.parts)count[n]=(count[n]||0)+1;return Object.entries(count).map(([n,q])=>`${q>1?q+'× ':''}${n}`).join(' + ')}
 function fusionHistoryCount(id){return state.fusions.history.filter(x=>x.id===id).length}
@@ -738,7 +742,7 @@ function mergeBackupAccounts(rows,selectImported=false){
 }
 function accountSettings(){return `<section class="card card-pad account-settings"><div class="wizard-path-title"><div><h2 style="margin:0">Minhas contas</h2><p class="muted small">Cada conta possui inventário, progresso e avisos próprios.</p></div>${btn('+ Nova conta','createAccount',{kind:'secondary'})}</div><div class="account-list">${accountsDb.accounts.map(a=>{const active=a.id===accountsDb.activeId,qty=arrInventory(a.data).reduce((n,e)=>n+e.qty,0);return `<div class="account-row ${active?'account-current':''}"><div class="account-row-info"><strong>${h(a.name)}</strong>${active?'<span class="account-active-tag">Ativa</span>':''}<small>Caminho ${a.data.path||'não definido'} · Ciclo ${a.data.cycle} · ${nf(qty)} droid(s)</small></div><div class="account-row-buttons">${!active?btn('Usar','activateAccount',{kind:'secondary',size:'small',attrs:`data-id="${h(a.id)}"` }):''}${btn('Renomear','renameAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"`})}${accountsDb.accounts.length>1?btn('Excluir','deleteAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"` }):''}</div></div>`}).join('')}</div><p class="mini-note">A última conta utilizada será aberta automaticamente. Para trocar de conta em qualquer tela, use o seletor no topo.</p></section>`}
 function settings(){let s=getStats();return titlePage('CONFIGURAÇÕES','Seus dados, sob seu controle','Sem cadastro. Tudo fica neste navegador e você pode fazer backup quando quiser.')+accountSettings()+(window.DroidDrive?.panelHtml()||'')+`<div class="grid-3" style="margin-top:17px"><div class="card card-pad"><h3>⇩ Backup da conta ativa</h3><p class="muted small">Baixe apenas <strong>${h(currentAccount().name)}</strong>, com o nome no arquivo. Ao importar, o nome será mantido.</p>${btn('Baixar backup desta conta','exportActive',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇩ Backup completo</h3><p class="muted small">Salve todas as contas, seus nomes, inventários, ciclos e históricos em um único arquivo JSON.</p>${btn('Baixar todas as contas','export',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇧ Importar backup</h3><p class="muted small">Mantém o nome da conta do arquivo. Se já existir, perguntaremos antes de substituir; as demais contas serão preservadas.</p>${btn('Escolher arquivo','import',{kind:'secondary'})}</div></div><section class="card card-pad" style="margin-top:17px"><h3>Meu progresso</h3><div class="small muted">Caminho: <b>${state.path||'Não configurado'}</b> · Ciclo: <b>${state.cycle}</b> · Droids cadastrados: <b>${s.total}</b></div><div class="utility-bar">${state.path?`${btn('Corrigir ciclo','cycle',{kind:'secondary'})}${btn('Trocar de caminho','changePath',{kind:'ghost'})}`:btn('Configurar caminho','setup',{kind:'secondary'})}</div>${state.history.length?`<h4 class="subheading">Caminhos anteriores</h4>${state.history.slice(-5).reverse().map(x=>`<div class="details-line">Caminho ${h(x.path)} · Ciclo ${h(x.cycle)} <span class="small">${h(x.date||'')}</span></div>`).join('')}`:''}</section>${state.sales?.length?`<section class="card card-pad base-sales-history" style="margin-top:17px"><h3>Últimas vendas registradas</h3><p class="mini-note">Movimentações registradas pelo botão Registrar venda, nesta base ou nos detalhes.</p>${state.sales.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}${state.fusions?.genericHistory?.length?`<section class="card card-pad" style="margin-top:17px"><h3>Últimas fusões sugeridas realizadas</h3>${state.fusions.genericHistory.slice(-10).reverse().map(x=>`<div class="details-line"><span>${h(x.result)} · ${variantText(x.tier)}</span><b>${h(fusionKindName[x.kind])}</b></div>`).join('')}</section>`:''}${state.removals?.length?`<section class="card card-pad removal-history" style="margin-top:17px"><h3>Últimas retiradas do inventário</h3><p class="mini-note">Registros do botão “Não possuo mais”, por conta. Vendas e fusões têm registros separados.</p>${state.removals.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}<section class="card card-pad" style="margin-top:17px"><h3>Verificar fotos dos droids</h3><p class="small muted">Confira se as imagens dos 100 droids carregam na sua conexão. O teste não altera seu inventário.</p>${btn('Testar as 100 imagens','auditImages',{kind:'secondary'})}</section><section class="card card-pad" style="margin-top:17px"><h3>Privacidade e armazenamento</h3><p class="small muted">Os dados não são enviados ao Google Sheets nem ao GitHub. O inventário fica salvo neste navegador. Se você autorizar o Google Drive, uma cópia de backup também será enviada à sua conta Google. Para sincronizar entre aparelhos, conecte a mesma conta Google em ambos; mudanças da mesma conta feitas simultaneamente exigem revisão. Na navegação anônima ou após limpar dados do navegador, você pode perder informações sem backup.</p><div class="utility-bar">${btn('Conferir fonte dos requisitos','source',{kind:'ghost'})}${localStorage.getItem(ACCOUNTS_UNDO)?btn('Desfazer última restauração','undoRestore',{kind:'secondary'}):''}</div></section>`+footer();}
-function footer(){return `<footer class="footer-note">Referência comunitária: <a href="${h(DB.source)}" target="_blank" rel="noopener noreferrer">Droidex · 6 caminhos</a> e <a href="${h(DB.catalogSource)}" target="_blank" rel="noopener noreferrer">Droid Tycoon Helper · 100 droids e chips</a>. Base ${h(DB.version)}. Informações de progressão podem mudar com atualizações do jogo. “Pode Vender” respeita as reservas de fusão, mas não considera renda nem coleção.</footer>`}
+function footer(){return `<footer class="footer-note">Referência comunitária: <a href="${h(DB.source)}" target="_blank" rel="noopener noreferrer">Droidex · 6 caminhos</a> e <a href="${h(DB.catalogSource)}" target="_blank" rel="noopener noreferrer">Droid Tycoon Helper · 100 droids e chips</a>. Base ${h(DB.version)}. Informações de progressão podem mudar com atualizações do jogo. “Pode Vender” respeita as evoluções necessárias e as reservas de fusão, mas não considera renda nem coleção.</footer>`}
 function render(){requireCountsCache=null;if(storageError){app.innerHTML=`<div class="card card-pad"><h2>Armazenamento indisponível</h2><p>Não foi possível abrir suas contas: ${h(storageError)}. Seus dados antigos não foram apagados. Não faça novos cadastros neste momento; abra o site no navegador habitual ou restaure um backup em uma instalação funcional.</p></div>`;return}app.innerHTML=ui.tab==='dashboard'?dashboard():ui.tab==='search'?search():ui.tab==='inventory'?inventory():ui.tab==='pathlist'?fullPathChecklist():ui.tab==='fusion'?fusionPage():settings();accountHeader();document.querySelectorAll('[data-tab]').forEach(el=>{el.classList.toggle('active',el.dataset.tab===ui.tab);if(el.dataset.tab===ui.tab)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('top-breadcrumb').textContent={dashboard:'Meu caminho',search:'Consulta livre',inventory:'Minha Base',pathlist:'Lista do caminho',fusion:'Fusões especiais',settings:'Configurações'}[ui.tab];renderModal();renderDetail();}
 function restoreInputFocus(id,position){const q=document.querySelector(`[data-input="${id}"]`);if(q){q.focus();if(q.setSelectionRange&&position!=null)try{q.setSelectionRange(position,position)}catch(e){}}}
 function openModal(kind,props={}){ui.modal={kind,...props};renderModal()}
@@ -751,7 +755,9 @@ function renderDetail(){const root=document.getElementById('detail-root');if(!ro
  const variantActions=amount?`<div class="drawer-counts"><span>Guardar <b>${counts.keep}</b></span><span>Pode Vender <b>${counts.sell}</b></span></div><div class="drawer-actions">${btn('Editar','edit',{kind:'secondary',attrs:`data-name="${h(name)}" data-tier="${h(selected)}"`})}${selected==='Kyber'||selected==='Única'?'':btn('Evoluí','evolve',{kind:'secondary',attrs:`data-name="${h(name)}" data-tier="${h(selected)}"`})}${counts.sell?btn('Registrar venda','sale',{kind:'outline-green',attrs:`data-name="${h(name)}" data-tier="${h(selected)}" data-max="${counts.sell}"` }):''}</div><div class="drawer-remove-line">${btn('Não possuo mais','removeOwned',{kind:'secondary inventory-remove-btn',size:'small',attrs:`data-name="${h(name)}" data-tier="${h(selected)}"`})}</div>`:'';
  const sellCount=selected?counts.sell:saleTotalForDroid(name),reserved=selected?(requireCounts().protectedEntries.find(x=>x.name===name&&x.tier===selected)?.fusionQty||0):0;
  const saleExplanation=!state.path?'Configure seu caminho para calcular quais unidades podem ser vendidas.':!anyOwned(name)?'Você ainda não cadastrou este droid nesta conta.':sellCount?`Você pode vender ${sellCount} unidade(s)${selected?' da variante '+variantText(selected):''} após considerar seu caminho e suas reservas.`:'Nenhuma unidade desta variante está liberada para venda no momento.';
- const saleAdvisory=`<section class="drawer-section sale-advisory"><h3>↗ Pode vender?</h3><div class="advisory-status">${sellCount?badge(`Pode vender ${sellCount}`,'success'):badge(!state.path?'Sem caminho':'Guardar / sem excedentes','warning')}${reserved?badge(`${reserved} reservado(s) para fusão`,'blue'):''}</div><p class="mini-note">${saleExplanation}</p></section>`;
+ const detailUpgrade=selected?requireCounts().protectedEntries.find(x=>x.name===name&&x.tier===selected)?.upgrades||[]:[];
+ const evolutionAdvisory=detailUpgrade.length?`<div class="evolution-drawer-advice"><strong>⚠ Guardar para evoluir</strong>${detailUpgrade.map(u=>`<div>${nf(u.qty)}× ${variantText(selected)} → ${variantText(u.to)} · Ciclo <b>${u.cycle}</b> · Chips por unidade: <strong>${nf(chips(name,selected,u.to))}</strong></div>`).join('')}<small>Este droid ainda não atende ao requisito. Registre a evolução quando ela acontecer no jogo.</small></div>`:'';
+ const saleAdvisory=`<section class="drawer-section sale-advisory"><h3>↗ Pode vender?</h3><div class="advisory-status">${sellCount?badge(`Pode vender ${sellCount}`,'success'):badge(!state.path?'Sem caminho':'Guardar / sem excedentes','warning')}${reserved?badge(`${reserved} reservado(s) para fusão`,'blue'):''}</div>${evolutionAdvisory}<p class="mini-note">${saleExplanation}</p></section>`;
  const fusionAdvisory=`<section class="drawer-section fusion-advisory"><h3>⚗ Fusões especiais</h3>${fusionAlerts(name,selected)}</section>`;
  const chipsCalc=d.rarity==='Iconic'?'':`<section class="drawer-section"><h3>Chips para evoluir</h3><div class="field-inline"><div class="field"><label>De</label><select class="select variant-select" data-variant="${h(ui.chipFrom||'Default')}" data-input="chipFrom">${selects(T.map(value=>({value,label:variantLabel(value)})),ui.chipFrom||'Default')}</select></div><div class="field"><label>Para</label><select class="select variant-select" data-variant="${h(ui.chipTo||'Diamond')}" data-input="chipTo">${selects(T.map(value=>({value,label:variantLabel(value)})),ui.chipTo||'Diamond')}</select></div></div><p class="mini-note">Chips necessários: <b class="chip-highlight">${nf(chips(name,ui.chipFrom||'Default',ui.chipTo||'Diamond'))}</b></p></section>`;
  root.innerHTML=`<div class="detail-backdrop" data-action="closeDetailBackdrop"></div><aside class="detail-drawer" role="dialog" aria-modal="true" aria-label="Detalhes de ${h(name)}"><div class="drawer-handle"></div><div class="drawer-top"><div class="drawer-intro">${imageOf(name,true,selected||"Default")}<div><h2>${h(name)}</h2><div class="muted rarity-meta">${rarityTag(d.rarity)} <span class="role-label">${h(roleLabel(d.role))}</span></div></div></div><button type="button" class="drawer-close" data-action="closeDetail" aria-label="Fechar detalhes">×</button></div><div class="drawer-scroll">${state.path||tiers.length?`<section class="drawer-section"><h3>Na minha base</h3>${tiers.length?`<div class="drawer-variants">${tiers.map(([tier,qty])=>`<button type="button" class="variant-pill ${tier===selected?'on':''}" data-variant="${h(tier)}" data-action="detailTier" data-tier="${h(tier)}">${h(variantLabel(tier))} · ${qty}</button>`).join('')}</div>${variantActions}`:'<p class="muted small">Este droid não está cadastrado.</p>'}${btn('+ Consegui','add',{kind:'secondary',attrs:`data-name="${h(name)}"`})}</section>`:''}${saleAdvisory}${fusionAdvisory}<section class="drawer-section"><h3>Onde será necessário?</h3><div class="field"><label>Filtrar caminho</label><select class="select" data-input="pathFilter">${selects([{label:'Todos os caminhos',value:0},...Array.from({length:6},(_,i)=>({label:`Caminho ${i+1}`,value:i+1}))],ui.pathFilter)}</select></div><div class="detail-req-list">${requirementDetail}</div></section>${chipsCalc}</div></aside>`;
@@ -1055,7 +1061,7 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
  case 'openpathlist':setTab('pathlist');break;case 'opensearch':setTab('search');break;case 'opendashboard':setTab('dashboard');break;case 'openinventory':ui.inventoryScope='all';ui.catalogVisible=false;setTab('inventory');break;case 'addpick':ui.inventoryScope='all';ui.catalogVisible=false;setTab('inventory');break;
  case 'add':openModal('add',{name:n,tier:t});break;case 'edit':openModal('edit',{name:n,tier:t});break;
  case 'delete':if(ui.modal?.kind==='edit')openModal('delete',{name:ui.modal.name,tier:ui.modal.tier});break;
- case 'evolve':ui.evolveDestination='';openModal('evolve',{name:n,tier:t});break;
+ case 'evolve':ui.evolveDestination=T.includes(button.dataset.to)?button.dataset.to:'';openModal('evolve',{name:n,tier:t});break;
  case 'removeOwned':{if(!n||!t||!(state.inventory[n]?.[t]>0))return notify('Este droid não está no inventário desta conta.');openModal('removeOwned',{name:n,tier:t});break;}
  case 'sellOne':{
   if(ui.tab!=='inventory'||!validName(n)||!validTier(n,t)||!(state.inventory[n]?.[t]>0))return notify('Esse droid não está mais na sua base.');
