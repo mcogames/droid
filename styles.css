@@ -725,3 +725,7 @@ select.variant-select option{background:#111f32;color:#e0e8f2}
 
 .trait-by-function{margin:15px 0;padding:12px;background:#172c42;border:1px solid #34506b;border-radius:12px}.trait-by-function summary{cursor:pointer;font-weight:750;font-size:12px}.trait-by-function section{padding-top:12px}.trait-by-function .mini-note{margin:6px 0}
 @media(max-width:760px){.trait-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* v27.1: esconder corretamente os campos condicionais de habilidades */
+.trait-picker [hidden],.modal-body [data-trait-fields][hidden]{display:none!important}
+.trait-picker select{font-size:14px}

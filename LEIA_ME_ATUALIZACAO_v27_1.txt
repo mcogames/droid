@@ -1,0 +1,41 @@
+DROID TYCOON — CORREÇÃO DO CADASTRO DE HABILIDADES v27.1
+
+O QUE MUDOU
+- Em Minha Base > Unidade > Cadastrar / Ver habilidade, selecione
+  'Habilidade cadastrada', escolha primeiro a habilidade e depois
+  escolha o bônus numa lista (a classificação é definida pelo bônus).
+- Exemplo: Mestre da Sucata (Scrap Specialist) oferece:
+  +10% Comum, +20% Ouro, +30% Diamante, +50% Arco-íris.
+- Funciona também no registro de novas tentativas.
+- Habilidades com efeito fixo oferecem apenas a opção compatível.
+- Somente habilidades personalizadas continuam permitindo digitação do bônus.
+- Valores previamente cadastrados que não correspondam à tabela podem ser
+  mantidos como estavam, para não serem alterados sem consentimento.
+- Seu inventário, contas, habilidades anteriores e backups permanecem no
+  mesmo formato; nenhuma migração nova é necessária.
+
+PARA ATUALIZAR UMA v27 JÁ PUBLICADA
+1. Antes de publicar, faça backup JSON de todas as contas em Configurações.
+2. Faça uma cópia do conteúdo atual do repositório.
+3. Extraia o arquivo Droid_Tycoon_Atualizacao_Cadastro_Habilidades_v27_1.zip.
+4. Envie os QUATRO arquivos diretamente para a raiz do repositório no GitHub:
+   index.html, app.js, traits.js, styles.css
+5. Não substitua data.js nem drive-backup.js nem favicon.svg.
+6. Aguarde a publicação e atualize a página; se estiver em cache, use Ctrl+F5.
+7. Confira Minha Base > escolha um droid > Cadastrar / Ver habilidade.
+
+ARQUIVOS
+- Atualização: apenas quatro arquivos, para quem já está na v27.
+- Completo: todos os arquivos para nova instalação.
+
+TESTES
+- Código app.js, traits.js e drive-backup.js: verificação de sintaxe em Node.
+- 10 grupos de testes automatizados (inclusive todas as 26 habilidades).
+- Verificada compatibilidade do formato de armazenamento (sem alterações
+  de schema ou mudanças em data.js e drive-backup.js).
+- Teste de navegação com Chromium não pôde ser concluído porque o ambiente
+  bloqueia a abertura da página local (ERR_BLOCKED_BY_ADMINISTRATOR).
+  Após publicar, testar a interface no celular antes de registrar muitos droids.
+
+FONTE DA TABELA COMUNITÁRIA DE BÔNUS
+https://droidex.dubtrackr.win/guides/droid-tycoon-droid-traits/

@@ -840,15 +840,75 @@ function parseGameMoney(raw){const v=String(raw??'').trim().replace(/\s+/g,'');i
 function traitStatusBadge(u){const f=unitFit(u);const color=f.label==='Excelente'?'success':f.label==='Boa'?'blue':f.label==='Situacional'?'warning':'muted';return badge(f.label,color)}
 function detailUnitsHtml(name,tier){
  const list=unitsFor(name,tier);
- return `<div class="units-panel"><div class="units-heading"><b>Unidades e habilidades (${list.length})</b><small>Cada unidade possui histórico próprio.</small></div>${list.map(u=>`<div class="unit-line"><div class="unit-line-main"><b>${u.favorite?'★ ':''}${h(unitName(u))}</b><small>${h(unitTrait(u))}${u.grade?' · '+h(traitGradeLabel(u.grade)):''} ${u.bonus?h(u.bonus):''}</small>${traitStatusBadge(u)}</div><div class="unit-line-actions">${btn(u.favorite?'★':'☆','favoriteUnit',{kind:'ghost',size:'small',attrs:`data-id="${h(u.id)}" title="Marcar favorito"`})}${btn('Avaliar','unitProfile',{kind:'secondary',size:'small',attrs:`data-id="${h(u.id)}"`})}</div></div>`).join('')}</div>`;
+ return `<div class="units-panel"><div class="units-heading"><b>Unidades e habilidades (${list.length})</b><small>Cada unidade possui histórico próprio.</small></div>${list.map(u=>`<div class="unit-line"><div class="unit-line-main"><b>${u.favorite?'★ ':''}${h(unitName(u))}</b><small>${h(unitTrait(u))}${u.grade?' · '+h(traitGradeLabel(u.grade)):''} ${u.bonus?h(u.bonus):''}</small>${traitStatusBadge(u)}</div><div class="unit-line-actions">${btn(u.favorite?'★':'☆','favoriteUnit',{kind:'ghost',size:'small',attrs:`data-id="${h(u.id)}" title="Marcar favorito"`})}${btn('Cadastrar / Ver habilidade','unitProfile',{kind:'secondary',size:'small',attrs:`data-id="${h(u.id)}"`})}</div></div>`).join('')}</div>`;
 }
-function traitOptions(name,rarity,grade,chosen='',custom=true){
- const allowed=TRAITS.pool(name,rarity,grade);
- let entries=allowed.map(x=>({id:x.id,label:x.label}));
- entries.push(...(accountsDb.customTraits||[]).map(x=>({id:x.id,label:x.name+' · Personalizada'})));
- if(chosen&&!entries.some(x=>x.id===chosen))entries.push({id:chosen,label:'Habilidade antiga / não verificada: '+chosen});
- return `<option value="">Selecione uma habilidade</option>${entries.map(x=>`<option value="${h(x.id)}" ${chosen===x.id?'selected':''}>${h(x.label)}</option>`).join('')}${custom?'<option value="__custom__">+ Cadastrar habilidade personalizada</option>':''}`;
+function traitOptions(name,rarity,chosen='',custom=true){
+ // O nome vem primeiro. As classificações disponíveis dependem da habilidade selecionada.
+ const entries=TRAITS.traits.filter(t=>TRAITS.tiers.some(g=>TRAITS.eligible(name,rarity,t.id,g)))
+  .map(t=>({id:t.id,label:t.label}));
+ entries.push(...(accountsDb.customTraits||[]).map(t=>({id:t.id,label:t.name+' · Personalizada'})));
+ if(chosen&&!entries.some(t=>t.id===chosen))entries.push({id:chosen,label:'Registrada anteriormente: '+chosen});
+ return `<option value="">Selecione uma habilidade</option>${entries.map(t=>`<option value="${h(t.id)}" ${t.id===chosen?'selected':''}>${h(t.label)}</option>`).join('')}${custom?'<option value="__custom__">+ Cadastrar outra habilidade (personalizada)</option>':''}`;
 }
+function traitValueOptions(name,rarity,traitId,previousGrade='',previousBonus=''){
+ const trait=TRAITS.byId[traitId];if(!trait)return '<option value="">Escolha a habilidade primeiro</option>';
+ const opts=TRAITS.tiers.filter(grade=>TRAITS.eligible(name,rarity,traitId,grade)).map(grade=>{
+  const value=trait.values?.[TRAITS.tiers.indexOf(grade)]||'';
+  const label=value?`${value} · ${traitGradeLabel(grade)}`:`${traitGradeLabel(grade)} · Efeito fixo`;
+  return {grade,value,label};
+ });
+ let preferred=opts.some(x=>x.grade===previousGrade)?previousGrade:'';
+ const legacy=previousGrade&&previousBonus&&trait.values&&preferred&&opts.find(x=>x.grade===preferred).value!==previousBonus;
+ return `<option value="">Selecione o bônus recebido</option>${legacy?`<option value="__saved__" selected>Manter bônus anterior (${h(previousBonus)} · ${h(traitGradeLabel(previousGrade))})</option>`:''}${opts.map(x=>`<option value="${h(x.grade)}" ${!legacy&&x.grade===preferred?'selected':''}>${h(x.label)}</option>`).join('')}`;
+}
+function traitPicker(name,rarity,chosen='',grade='',bonus=''){
+ const standard=!!TRAITS.byId[chosen];
+ const custom=!!chosen&&!standard;
+ const newlyCustom=chosen==='__custom__';
+ return `<div class="trait-picker">
+ <div class="field"><label>1. Habilidade que você ganhou</label><select class="select" name="trait" data-input="traitSelected">${traitOptions(name,rarity,chosen)}</select></div>
+ <div class="field" data-trait-values ${standard?'':'hidden'}><label>2. Bônus recebido no jogo</label><select class="select" name="traitGradeValue">${traitValueOptions(name,rarity,chosen,grade,bonus)}</select><small>Ao escolher o bônus, o site define automaticamente a classificação (Comum, Ouro, Diamante ou Arco-íris).</small></div>
+ <div class="field" data-trait-custom-name ${newlyCustom?'':'hidden'}><label>Nome da nova habilidade personalizada</label><input class="input" name="customName" maxlength="100" placeholder="Nome que aparece no jogo"></div>
+ <div data-trait-custom ${custom?'':'hidden'}><div class="field"><label>Classificação da habilidade personalizada</label><select class="select" name="customGrade">${TRAITS.tiers.map(g=>`<option value="${g}" ${g===(grade||'Common')?'selected':''}>${traitGradeLabel(g)}</option>`).join('')}</select></div><div class="field"><label>Bônus da habilidade personalizada (opcional)</label><input class="input" name="customBonus" maxlength="60" value="${h(bonus)}" placeholder="Somente se não estiver no catálogo"></div></div>
+ </div>`;
+}
+function updateTraitPicker(form,traitId,name,rarity){
+ const trait=TRAITS.byId[traitId];
+ const valueSection=form.querySelector('[data-trait-values]');
+ const customName=form.querySelector('[data-trait-custom-name]');
+ const customSection=form.querySelector('[data-trait-custom]');
+ if(valueSection)valueSection.hidden=!trait;
+ if(customName)customName.hidden=traitId!=='__custom__';
+ if(customSection)customSection.hidden=!!trait||!traitId;
+ const select=form.querySelector('select[name="traitGradeValue"]');
+ if(select)select.innerHTML=traitValueOptions(name,rarity,traitId);
+}
+function selectedTraitData(vals,u){
+ const trait=String(vals.get('trait')||'');
+ const rarity=byName[u.name].rarity;
+ if(!trait)return {error:'Escolha a habilidade que você ganhou.'};
+ if(TRAITS.byId[trait]){
+  let grade=String(vals.get('traitGradeValue')||'');
+  if(grade==='__saved__'&&u.trait===trait&&TRAITS.tiers.includes(u.grade))return {trait,grade:u.grade,bonus:u.bonus};
+  if(!TRAITS.tiers.includes(grade)||!TRAITS.eligible(u.name,rarity,trait,grade))return {error:'Escolha uma das opções de bônus disponíveis para esta habilidade.'};
+  return {trait,grade,bonus:TRAITS.byId[trait].values?.[TRAITS.tiers.indexOf(grade)]||''};
+ }
+ const grade=String(vals.get('customGrade')||'Common');
+ if(!TRAITS.tiers.includes(grade))return {error:'Escolha a classificação da habilidade personalizada.'};
+ if(trait==='__custom__'){
+  const newName=String(vals.get('customName')||'').trim();
+  if(!newName||newName.length>100)return {error:'Informe o nome da habilidade personalizada.'};
+  const existing=(accountsDb.customTraits||[]).find(t=>t.name.toLocaleLowerCase('pt-BR')===newName.toLocaleLowerCase('pt-BR'));
+  return {trait:existing?.id||'__custom__',newName:existing?null:newName,grade,bonus:String(vals.get('customBonus')||'').slice(0,60)};
+ }
+ if(!(accountsDb.customTraits||[]).some(x=>x.id===trait)&&u.trait!==trait)return {error:'Esta habilidade não está cadastrada. Confira a seleção.'};
+ return {trait,grade,bonus:String(vals.get('customBonus')||'').slice(0,60)};
+}
+function saveNewCustomTrait(selection){
+ if(!selection.newName)return selection.trait;
+ const id='custom:'+newId();accountsDb.customTraits.push({id,name:selection.newName});return id;
+}
+
 function traitFunctionsRow(u){const d=byName[u.name],functions=TRAITS.functionsFor(u.name,d.role);return `<div class="field"><label>Funções avaliadas (pode selecionar mais de uma)</label><div class="unit-check-grid">${functions.map(f=>`<label><input type="checkbox" name="uses" value="${h(f.id)}" ${(u.uses||[]).includes(f.id)?'checked':''}> ${h(f.name)}</label>`).join('')}</div><small>Se não marcar nenhuma, o guia avaliará todas as funções naturais conhecidas.</small></div>`}
 function guideSummary(u){const d=byName[u.name],fit=unitFit(u);return `<div class="trait-evaluation">${traitStatusBadge(u)} <strong>${h(unitTrait(u))}</strong>${u.bonus?' · '+h(u.bonus):''}<p>${h(fit.explain)}</p>${(TRAITS.functionsFor(u.name,d.role)||[]).map(f=>`<small><b>${h(f.name)}:</b> ${h(f.detail)}</small>`).join('')}</div>`}
 function recommendedTraits(name,chosenUses=[]){
@@ -950,16 +1010,16 @@ function renderModal(){const root=document.getElementById('modal-root');const m=
   buttons='<button class="btn" data-action="close" type="button">Fechar</button>';break;
  }
  case 'unitProfile':{
-  const u=unitById(m.id);if(!u){ui.modal=null;root.innerHTML='';return}const d=byName[u.name],grade=m.grade||u.grade||'Common';
+  const u=unitById(m.id);if(!u){ui.modal=null;root.innerHTML='';return}const d=byName[u.name];
   title=`${u.name} · ${variantLabel(u.tier)}`;subtitle='Cadastro individual de habilidade';
-  content=`${guideSummary(u)}<div class="field"><label>Apelido (opcional)</label><input class="input" name="nickname" maxlength="60" placeholder="Ex.: C-3PO fabricação" value="${h(u.nickname)}"></div><label class="unit-favorite-check"><input type="checkbox" name="favorite" ${u.favorite?'checked':''}> ★ Marcar esta unidade como favorita</label>${traitFunctionsRow(u)}<div class="field"><label>Situação da habilidade</label><select class="select" name="traitStatus" data-input="traitStatus"><option value="unknown" ${u.traitStatus==='unknown'?'selected':''}>Não verificado</option><option value="none" ${u.traitStatus==='none'?'selected':''}>Sem habilidade (não escaneado)</option><option value="known" ${u.traitStatus==='known'?'selected':''}>Habilidade cadastrada</option></select></div><div class="field"><label>Classificação da habilidade</label><select class="select" name="grade" data-input="traitGrade">${TRAITS.tiers.map(g=>`<option value="${g}" ${g===grade?'selected':''}>${traitGradeLabel(g)}</option>`).join('')}</select></div><div class="field"><label>Habilidade recebida</label><select class="select" name="trait">${traitOptions(u.name,d.rarity,grade,u.trait)}</select><small>Selecione apenas combinações realmente possíveis no jogo. Para um nome ainda desconhecido, use a opção personalizada.</small></div><div class="field"><label>Nova habilidade personalizada (se selecionada)</label><input class="input" name="customName" maxlength="100" placeholder="Nome conforme aparece no jogo"></div><div class="field"><label>Bônus observado (opcional)</label><input class="input" name="bonus" maxlength="60" value="${h(u.bonus)}" placeholder="Ex.: +25%"></div>${recommendedTraits(u.name,u.uses)}<div class="trait-advice"><b>Vale trocar?</b><p>${h(unitAdvice(u))}</p></div><div class="unit-profile-actions">${btn('Registrar nova tentativa','unitRoll',{kind:'secondary',attrs:`data-id="${h(u.id)}"`})}${btn('Registrar teste','unitTest',{kind:'secondary',attrs:`data-id="${h(u.id)}"`})}</div>${u.history.length?`<div class="trait-history"><b>Histórico de tentativas</b>${u.history.slice(-20).reverse().map(e=>`<p class="mini-note">${h(e.date?.slice(0,10)||'')} · ${h(e.label||e.trait||'Habilidade alterada')} · ${e.cost==null?'Custo não informado':nf(e.cost)+' '+currencyLabel(e.currency||'nova')}</p>`).join('')}</div>`:''}${u.tests.length?`<div class="trait-history"><b>Testes pessoais</b>${u.tests.slice(-10).reverse().map(e=>`<p class="mini-note">${h(e.date?.slice(0,10)||'')} · ${h(e.function||'Função')} · ${h(e.before)} → ${h(e.after)}${e.note?' · '+h(e.note):''}</p>`).join('')}</div>`:''}`;
+  content=`${guideSummary(u)}<div class="field"><label>Apelido (opcional)</label><input class="input" name="nickname" maxlength="60" placeholder="Ex.: C-3PO fabricação" value="${h(u.nickname)}"></div><label class="unit-favorite-check"><input type="checkbox" name="favorite" ${u.favorite?'checked':''}> ★ Marcar esta unidade como favorita</label>${traitFunctionsRow(u)}<div class="field"><label>Situação da habilidade</label><select class="select" name="traitStatus" data-input="traitStatus"><option value="unknown" ${u.traitStatus==='unknown'?'selected':''}>Não verificado</option><option value="none" ${u.traitStatus==='none'?'selected':''}>Sem habilidade (não escaneado)</option><option value="known" ${u.traitStatus==='known'?'selected':''}>Habilidade cadastrada</option></select></div><div data-trait-fields ${u.traitStatus==='known'?'':'hidden'}>${traitPicker(u.name,d.rarity,u.trait,u.grade,u.bonus)}</div>${recommendedTraits(u.name,u.uses)}<div class="trait-advice"><b>Vale trocar?</b><p>${h(unitAdvice(u))}</p></div><div class="unit-profile-actions">${btn('Registrar nova tentativa','unitRoll',{kind:'secondary',attrs:`data-id="${h(u.id)}"`})}${btn('Registrar teste','unitTest',{kind:'secondary',attrs:`data-id="${h(u.id)}"`})}</div>${u.history.length?`<div class="trait-history"><b>Histórico de tentativas</b>${u.history.slice(-20).reverse().map(e=>`<p class="mini-note">${h(e.date?.slice(0,10)||'')} · ${h(e.label||e.trait||'Habilidade alterada')} · ${e.cost==null?'Custo não informado':nf(e.cost)+' '+currencyLabel(e.currency||'nova')}</p>`).join('')}</div>`:''}${u.tests.length?`<div class="trait-history"><b>Testes pessoais</b>${u.tests.slice(-10).reverse().map(e=>`<p class="mini-note">${h(e.date?.slice(0,10)||'')} · ${h(e.function||'Função')} · ${h(e.before)} → ${h(e.after)}${e.note?' · '+h(e.note):''}</p>`).join('')}</div>`:''}`;
   buttons='<button class="btn" type="submit">Salvar unidade</button>';break;
  }
  case 'unitRoll':{
   const u=unitById(m.id);if(!u){ui.modal=null;root.innerHTML='';return}
-  const d=byName[u.name],grade=m.grade||'Common',guess=TRAITS.price(d.rarity,Math.max(0,u.rolls)),currency=TRAITS.currency(d.rarity),label=currencyLabel(currency);
+  const d=byName[u.name],guess=TRAITS.price(d.rarity,Math.max(0,u.rolls)),currency=TRAITS.currency(d.rarity),label=currencyLabel(currency);
   title='Registrar tentativa realizada';subtitle=u.name+' · '+variantLabel(u.tier);
-  content=`<p>Registre apenas após escanear o droid <strong>dentro do jogo</strong>. A habilidade anterior será preservada no histórico.</p><div class="hint">Habilidade atual: ${h(unitTrait(u))}. Próxima leitura: ${h(costDisplay(d.rarity,u.rolls))}. ${currency==='credits'?'O novo preço em créditos precisa ser conferido diretamente no jogo.':'O valor de Nova é referência comunitária; confirme na tela do jogo.'}</div><div class="field"><label>Classificação recebida</label><select class="select" name="grade" data-input="traitGrade">${TRAITS.tiers.map(g=>`<option value="${g}" ${g===grade?'selected':''}>${traitGradeLabel(g)}</option>`).join('')}</select></div><div class="field"><label>Habilidade realmente sorteada</label><select class="select" name="trait" required>${traitOptions(u.name,d.rarity,grade)}</select></div><div class="field"><label>Se personalizada, informe o nome</label><input class="input" name="customName" maxlength="100"></div><div class="field"><label>Bônus observado (opcional)</label><input class="input" name="bonus" maxlength="60" placeholder="Ex.: +25%"></div><div class="field"><label>Custo real da tentativa (${label}, opcional)</label><input class="input" name="cost" type="text" inputmode="decimal" placeholder="${currency==='credits'?'Ex.: 3T ou 2500000':'Ex.: 200'}" value="${guess??''}"></div><p class="mini-note">Saldo de ${label} na conta: ${financeValue(currency)}. Se informar o custo, ele será descontado do saldo cadastrado. Caso deixe em branco, a tentativa será registrada sem desconto. Um aviso permitirá registrar mesmo com saldo insuficiente.</p>`;
+  content=`<p>Registre apenas após escanear o droid <strong>dentro do jogo</strong>. A habilidade anterior será preservada no histórico.</p><div class="hint">Habilidade atual: ${h(unitTrait(u))}. Próxima leitura: ${h(costDisplay(d.rarity,u.rolls))}. ${currency==='credits'?'O novo preço em créditos precisa ser conferido diretamente no jogo.':'O valor de Nova é referência comunitária; confirme na tela do jogo.'}</div>${traitPicker(u.name,d.rarity)}<div class="field"><label>Custo real da tentativa (${label}, opcional)</label><input class="input" name="cost" type="text" inputmode="decimal" placeholder="${currency==='credits'?'Ex.: 3T ou 2500000':'Ex.: 200'}" value="${guess??''}"></div><p class="mini-note">Saldo de ${label} na conta: ${financeValue(currency)}. Se informar o custo, ele será descontado do saldo cadastrado. Caso deixe em branco, a tentativa será registrada sem desconto. Um aviso permitirá registrar mesmo com saldo insuficiente.</p>`;
   buttons='<button class="btn" type="submit">Registrar habilidade e custo</button>';break;
  }
  case 'unitTest':{
@@ -1110,41 +1170,30 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
  }
  case 'unitProfile':{
   const u=unitById(m.id);if(!u)return notify('Unidade não encontrada nesta conta.');
-  const status=String(vals.get('traitStatus')||'unknown'),grade=String(vals.get('grade')||'Common'),oldTrait=u.trait;
+  const status=String(vals.get('traitStatus')||'unknown'),oldTrait=u.trait;
   if(!['unknown','none','known'].includes(status))return notify('Estado inválido.');
-  let trait=String(vals.get('trait')||'');
-  if(status==='known'){
-   if(!TRAITS.tiers.includes(grade))return notify('Classificação inválida.');
-   if(trait==='__custom__'){
-    const name=String(vals.get('customName')||'').trim();if(!name||name.length>100)return notify('Digite o nome da habilidade personalizada.');
-    const exist=(accountsDb.customTraits||[]).find(t=>t.name.toLowerCase()===name.toLowerCase());
-    trait=exist?.id||('custom:'+newId());if(!exist)accountsDb.customTraits.push({id:trait,name});
-   }
-   if(!trait)return notify('Selecione a habilidade realmente recebida.');
-   if(TRAITS.byId[trait]&&!TRAITS.eligible(u.name,byName[u.name].rarity,trait,grade))return notify('Esta combinação não consta do sorteio permitido para este droid. Confira a classificação.');
-  }
+  const chosen=status==='known'?selectedTraitData(vals,u):null;
+  if(chosen?.error)return notify(chosen.error);
   const uses=vals.getAll('uses').filter(x=>TRAITS.functionsFor(u.name,byName[u.name].role).some(f=>f.id===x));
   save(()=>{u.nickname=String(vals.get('nickname')||'').trim().slice(0,60);u.favorite=vals.has('favorite');u.uses=uses;
-   u.traitStatus=status;u.trait=status==='known'?trait:'';u.grade=status==='known'?grade:'';u.bonus=status==='known'?String(vals.get('bonus')||'').slice(0,60):'';
+   const trait=status==='known'?saveNewCustomTrait(chosen):'';
+   u.traitStatus=status;u.trait=trait;u.grade=status==='known'?chosen.grade:'';u.bonus=status==='known'?chosen.bonus:'';
    if(status==='known'&&oldTrait!==trait)u.history.push({date:new Date().toISOString(),label:'Cadastro/correção manual: '+unitTrait(u),cost:0});
    u.history=u.history.slice(-80);
   },'Informações desta unidade atualizadas.');break;
  }
  case 'unitRoll':{
   const u=unitById(m.id);if(!u)return notify('Unidade não encontrada.');
-  const grade=String(vals.get('grade')||''),costValue=String(vals.get('cost')||'').trim(),cost=parseGameMoney(costValue);let trait=String(vals.get('trait')||'');
-  if(!TRAITS.tiers.includes(grade)||costValue&&(!Number.isFinite(cost)||cost<0))return notify('Classificação ou custo inválido.');
-  if(trait==='__custom__'){
-   const name=String(vals.get('customName')||'').trim();if(!name||name.length>100)return notify('Informe o nome da habilidade personalizada.');
-   const old=(accountsDb.customTraits||[]).find(t=>t.name.toLowerCase()===name.toLowerCase());
-   trait=old?.id||('custom:'+newId());if(!old)accountsDb.customTraits.push({id:trait,name});
-  }
-  if(!trait||TRAITS.byId[trait]&&!TRAITS.eligible(u.name,byName[u.name].rarity,trait,grade))return notify('Habilidade não permitida nesta classificação.');
+  const selection=selectedTraitData(vals,u);
+  if(selection.error)return notify(selection.error);
+  const costValue=String(vals.get('cost')||'').trim(),cost=parseGameMoney(costValue);
+  if(costValue&&(!Number.isFinite(cost)||cost<0))return notify('Informe um custo válido.');
   const currency=TRAITS.currency(byName[u.name].rarity),label=currencyLabel(currency),balance=state.finance[currency];
   if(cost!=null&&balance!=null&&balance<cost&&!window.confirm(`Seu saldo informado (${nf(balance)} ${label}) é menor que o custo (${nf(cost)} ${label}). Registrar a tentativa e zerar o saldo estimado? Depois você poderá corrigir o valor.`))return;
   save(()=>{
+   const trait=saveNewCustomTrait(selection),grade=selection.grade;
    u.history.push({date:new Date().toISOString(),from:u.traitStatus==='known'?u.trait:'Não verificado',trait,grade,label:'Tentativa: '+(TRAITS.byId[trait]?.label||accountsDb.customTraits.find(x=>x.id===trait)?.name||trait),cost,currency});u.history=u.history.slice(-80);
-   u.rolls++;u.traitStatus='known';u.trait=trait;u.grade=grade;u.bonus=String(vals.get('bonus')||'').slice(0,60);
+   u.rolls++;u.traitStatus='known';u.trait=trait;u.grade=grade;u.bonus=selection.bonus;
    if(cost!=null&&state.finance[currency]!=null)state.finance[currency]=Math.max(0,state.finance[currency]-cost);
    state.financeLedger.push({date:new Date().toISOString(),unitId:u.id,spent:cost,currency,shortage:cost!=null&&balance!=null?Math.max(0,cost-balance):null});state.financeLedger=state.financeLedger.slice(-200);
    opRecord('tentativa',[u],{cost,currency});
@@ -1431,7 +1480,8 @@ document.addEventListener('input',e=>{const input=e.target.dataset.input;if(!inp
  if(input==='batchQty'){const name=e.target.dataset.name;const qty=Number(e.target.value);if(ui.batch[name]&&qty>=1)ui.batch[name].qty=qty}
  });
 document.addEventListener('change',e=>{if(e.target.matches?.('select.variant-select'))e.target.dataset.variant=e.target.value;const inp=e.target.dataset.input;if(!inp)return;const value=e.target.value;
- switch(inp){case 'traitGrade':if(ui.modal&&['unitProfile','unitRoll'].includes(ui.modal.kind)){ui.modal.grade=value;const u=unitById(ui.modal.id),select=e.target.closest('form')?.querySelector('select[name=trait]');if(u&&select)select.innerHTML=traitOptions(u.name,byName[u.name].rarity,value,'',true)}break;case 'activeAccount':activateAccount(value);break;case 'setupCycle':ui.setupCycle=Number(value);break;case 'setupRegister':ui.setupRegister=value==='yes';break;case 'browsePath':ui.browsePath=Number(value);render();break;case 'browseCycle':ui.browseCycle=Number(value);render();break;case 'pathFilter':ui.pathFilter=Number(value);if(ui.detail)renderDetail();else render();break;
+ switch(inp){case 'traitSelected':if(ui.modal&&['unitProfile','unitRoll'].includes(ui.modal.kind)){const u=unitById(ui.modal.id),form=e.target.closest('form');if(u&&form)updateTraitPicker(form,value,u.name,byName[u.name].rarity)}break;
+ case 'traitStatus':{const form=e.target.closest('form'),fields=form?.querySelector('[data-trait-fields]');if(fields)fields.hidden=value!=='known';break;}case 'activeAccount':activateAccount(value);break;case 'setupCycle':ui.setupCycle=Number(value);break;case 'setupRegister':ui.setupRegister=value==='yes';break;case 'browsePath':ui.browsePath=Number(value);render();break;case 'browseCycle':ui.browseCycle=Number(value);render();break;case 'pathFilter':ui.pathFilter=Number(value);if(ui.detail)renderDetail();else render();break;
  case 'chipFrom':ui.chipFrom=value;if(ui.detail)renderDetail();else render();break;case 'chipTo':ui.chipTo=value;if(ui.detail)renderDetail();else render();break;
  case 'catalogRarity':ui.catalogRarity=value;render();break;
   case 'fusionTier':{const r=FUSION_BY_ID[e.target.dataset.id],i=Number(e.target.dataset.index);if(!r||!Number.isInteger(i)||i<0||i>2||!T.includes(value))break;ui.fusionDraft[r.id]=[...fusionTiers(r)];ui.fusionDraft[r.id][i]=value;render();break;}
