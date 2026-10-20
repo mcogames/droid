@@ -729,3 +729,6 @@ select.variant-select option{background:#111f32;color:#e0e8f2}
 /* v27.1: esconder corretamente os campos condicionais de habilidades */
 .trait-picker [hidden],.modal-body [data-trait-fields][hidden]{display:none!important}
 .trait-picker select{font-size:14px}
+
+/* v27.2: impedir que layouts flex/grid exibam campos marcados hidden */
+.trait-picker [hidden], [data-trait-fields][hidden] { display: none !important; }

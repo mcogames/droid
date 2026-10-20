@@ -1,0 +1,26 @@
+DROID TYCOON — ATUALIZAÇÃO v27.2 — 20/10/2026
+
+CORREÇÕES
+1) Cadastro de habilidades: depois de escolher a habilidade aparece "2. Escolha uma das opções dessa habilidade (Droidex)". Os bônus e a classificação são escolhidos juntos; valores livres ficam somente para habilidades personalizadas.
+   Exemplo: Especialista em sucata: +10% Comum, +20% Ouro, +30% Diamante, +50% Arco-íris. Fonte: https://droidex.dubtrackr.win/guides/droid-tycoon-droid-traits/ (v1.35.0, 17/10/2026).
+2) Apenas 1 unidade DE CADA DROID Icônico POR CONTA (ex.: 1 C-3PO + 1 Chopper é permitido). Cadastro individual, cadastro em lote, lista do caminho e validação central aplicam a regra.
+3) Se um backup antigo já tiver Iconicos duplicados, ele NÃO será apagado nem reescrito automaticamente. Uma mensagem na Minha Base avisa para conferência.
+4) Atualização de cache de index, app, traits e styles para v27.2.
+
+ATUALIZAÇÃO NO GITHUB (site atual v27 ou v27.1)
+1. No site atual, Configurações -> exporte backup JSON de todas as contas. Guarde esse arquivo.
+2. Baixe uma cópia dos arquivos atuais do seu repositório GitHub para permitir reverter.
+3. Extraia este ZIP de atualização e envie para a raiz do repositório somente:
+   index.html / app.js / traits.js / styles.css
+4. NÃO substitua data.js, drive-backup.js, favicon.svg, nem exclua outros arquivos existentes.
+5. Aguarde a publicação do GitHub Pages. Atualize com Ctrl+F5 (ou limpe cache do site no celular).
+6. Teste C-3PO (ou outro droid): Minha Base -> Cadastrar / Ver habilidade -> escolha Especialista em sucata. O próximo campo deve listar as quatro opções.
+7. Confirme que os Icônicos existentes não podem ser cadastrados novamente na mesma conta, mas outros Icônicos e droids comuns podem.
+
+DADOS
+A atualização não altera automaticamente seu backup local nem os dados do Google Drive. Contas e unidade já cadastradas permanecem.
+
+TESTES
+- Verificação sintática de app.js e traits.js via Node.js.
+- 15 simulações do seletor dependente, valores e classificações do Droidex, filtro de habilidades por raridade, cadastro de Icônicos por conta e preservação de arquivos não afetados.
+- Navegação visual e sincronização Google Drive na conta real NÃO foram validadas. Recomenda-se backup e checagem após publicação.

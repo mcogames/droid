@@ -15,7 +15,7 @@ const traits=[
  t('Critical Chance','Chance crítica','Companheiro','Aumenta a chance de crítico.',['+5%','+10%','+15%','+25%']),
  t('Critical Amount','Dano crítico','Companheiro','Aumenta o efeito crítico.',['+10%','+20%','+30%','+50%']),
  t('Upgrade Chip Bonus','Bônus de chips','Companheiro','Aumenta os chips de melhoria.',['+20%','+40%','+60%','+100%']),
- t('Scrap Specialist','Mestre da Sucata (Especialista em sucata)','Companheiro','Aumenta créditos em estações de sucata.',['+10%','+20%','+30%','+50%']),
+ t('Scrap Specialist','Especialista em sucata','Companheiro','Aumenta créditos em estações de sucata.',['+10%','+20%','+30%','+50%']),
  t('Fusion Expert','Especialista em fusão','Companheiro','Aumenta a quantidade de picareta em fusões.',['+20%','+40%','+70%','+100%']),
  t('Mission Efficiency','Eficiência em missões','Estação Operário/Astromecânico','Acelera missão astromecânica da unidade.',['+5%','+10%','+15%','+25%']),
  t('Offline Earnings','Ganhos offline','Estação Operário/Astromecânico','Aumenta os ganhos offline totais.',['+2%','+4%','+6%','+10%']),
