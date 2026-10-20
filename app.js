@@ -1,8 +1,9 @@
-/* Droid Tycoon — v26: protege variantes inferiores necessárias para evolução. */
+/* Droid Tycoon — v27: catálogo de habilidades, unidades individuais, avaliação e migração segura. */
 (()=>{'use strict';
-const DB=window.DROID_DB;
+const DB=window.DROID_DB, TRAITS=window.DROID_TRAITS;
 const STORE='droidtycoon_local_v1', RESTORE='droidtycoon_restore_undo_v1', NOTICE_KEY='droidtycoon_sale_notices_v2';
-const ACCOUNTS_KEY='droidtycoon_accounts_v1', ACCOUNTS_UNDO='droidtycoon_accounts_restore_v1';
+const ACCOUNTS_KEY='droidtycoon_accounts_v1', ACCOUNTS_UNDO='droidtycoon_accounts_restore_v1', OP_UNDO_KEY='droidtycoon_operation_undo_v27_';
+const PRE_TRAITS_BACKUP='droidtycoon_pre_traits_v26';
 const T=DB.tiers, CAT=DB.catalog, R=DB.requirements, byName=Object.fromEntries(CAT.map(d=>[d.name,d]));
 // Traduções apenas para apresentação; os identificadores originais permanecem intactos.
 const RARITY_PT={Common:'Comum',Rare:'Raro',Epic:'Épico',Legendary:'Lendário',Mythic:'Mítico',Iconic:'Icônico'};
@@ -72,14 +73,63 @@ const variantBadge=tier=>`<span class="variant-token" data-variant="${h(tier)}">
 const nf=n=>new Intl.NumberFormat('pt-BR').format(n), rank=v=>Math.max(0,T.indexOf(v)), nextId=(name,tier)=>`${name}::${tier}`;
 const arrInventory=s=>Object.entries(s.inventory).flatMap(([name,tiers])=>Object.entries(tiers).filter(([,qty])=>qty>0).map(([tier,qty])=>({name,tier,qty}))).sort((a,b)=>a.name.localeCompare(b.name,'pt-BR')||rank(b.tier)-rank(a.tier));
 const validName=name=>!!byName[name], validTier=(name,tier)=>byName[name]?.rarity==='Iconic'?tier==='Única':T.includes(tier);
-const empty=()=>({schema:1,path:0,cycle:1,inventory:{},absent:{},sales:[],removals:[],history:[],completed:[],fusions:{plans:{},history:[],genericPlans:[],genericHistory:[]},lastModified:Date.now()});
+// Individual units coexist with aggregate inventory: legacy rebirth/fusion totals remain intact.
+function bareUnit(name,tier){return {id:'unidade-'+newId(),name,tier,traitStatus:'unknown',trait:'',grade:'',bonus:'',nickname:'',favorite:false,uses:[],rolls:0,history:[],tests:[],createdAt:new Date().toISOString()}}
+function normalizeUnits(input,inventory){
+ const list=[];const used=new Set();
+ if(Array.isArray(input))for(const row of input.slice(0,30000)){
+  if(!row||!validName(row.name)||!validTier(row.name,row.tier))continue;
+  const id=typeof row.id==='string'&&row.id.length<=130&&row.id&&!used.has(row.id)?row.id:null;
+  if(!id)continue;used.add(id);
+  list.push({id,name:row.name,tier:row.tier,traitStatus:['unknown','none','known'].includes(row.traitStatus)?row.traitStatus:'unknown',
+   trait:typeof row.trait==='string'?row.trait.slice(0,120):'',grade:TRAITS.tiers.includes(row.grade)?row.grade:'',
+   bonus:typeof row.bonus==='string'?row.bonus.slice(0,60):'',nickname:typeof row.nickname==='string'?row.nickname.slice(0,60):'',
+   favorite:row.favorite===true,uses:Array.isArray(row.uses)?row.uses.filter(x=>typeof x==='string').slice(0,8):[],
+   rolls:Number.isSafeInteger(row.rolls)&&row.rolls>=0?row.rolls:0,history:Array.isArray(row.history)?row.history.slice(-80):[],
+   tests:Array.isArray(row.tests)?row.tests.slice(-50):[],createdAt:typeof row.createdAt==='string'?row.createdAt:'',
+   });
+ }
+ // Aggregated legacy totals are canonical: correct partial migrations without losing inventory.
+ for(const [name,ts] of Object.entries(inventory))for(const [tier,qty] of Object.entries(ts)){
+  const have=list.filter(x=>x.name===name&&x.tier===tier);
+  if(have.length>qty){let over=have.length-qty;for(let i=list.length-1;i>=0&&over;i--)if(list[i].name===name&&list[i].tier===tier){list.splice(i,1);over--}}
+  else for(let i=have.length;i<qty;i++)list.push(bareUnit(name,tier));
+ }
+ return list.filter(x=>!!inventory[x.name]?.[x.tier]);
+}
+function unitsFor(name,tier){return (state.units||[]).filter(x=>x.name===name&&(!tier||x.tier===tier))}
+function unitById(id){return state.units.find(x=>x.id===id)}
+function unitName(u){return u.nickname||u.name+' · '+u.id.slice(-5)}
+function unitTrait(u){return u.traitStatus==='known'?(TRAITS.byId[u.trait]?.label||accountsDb.customTraits?.find(t=>t.id===u.trait)?.name||u.trait):u.traitStatus==='none'?'Sem habilidade':'Não verificado'}
+function unitFit(u){const d=byName[u.name];return u.traitStatus==='known'?TRAITS.fit(u.name,d.role,u.trait,u.grade,u.uses):{score:-1,label:u.traitStatus==='none'?'Sem habilidade':'Não verificado',explain:'Cadastre o resultado obtido no jogo para avaliar.'}}
+function unitPriority(u){const fit=unitFit(u);return (u.favorite?100:0)+(fit.score>=3?30+fit.score*10:fit.score===-1?8:0)+(u.history.length>0?1:0)}
+function smartUnits(name,tier,qty){return unitsFor(name,tier).sort((a,b)=>unitPriority(a)-unitPriority(b)||a.id.localeCompare(b.id)).slice(0,qty)}
+function selectedUnits(name,tier,qty,ids){
+ const list=Array.isArray(ids)?ids.map(unitById):smartUnits(name,tier,qty);
+ if(list.length!==qty||new Set(list.map(x=>x?.id)).size!==qty||list.some(x=>!x||x.name!==name||x.tier!==tier))throw new Error('Seleção de unidades inválida; confira sua base.');
+ return list;
+}
+function archiveUnit(u,reason){state.unitArchive.push({...JSON.parse(JSON.stringify(u)),retiredAt:new Date().toISOString(),reason});state.unitArchive=state.unitArchive.slice(-350)}
+function removeUnits(name,tier,qty,ids,reason){const removed=selectedUnits(name,tier,qty,ids);for(const u of removed){archiveUnit(u,reason);state.units=state.units.filter(x=>x.id!==u.id)}return removed}
+function unitOptions(name,tier,qty=1){const list=smartUnits(name,tier,unitsFor(name,tier).length);return list.map(u=>`<option value="${h(u.id)}">${h(unitName(u))} — ${h(unitTrait(u))}${u.favorite?' ★':''}</option>`).join('')}
+function smartUnitSelect(name,tier,field,index=0){const pool=smartUnits(name,tier,unitsFor(name,tier).length);return `<select class="select" name="${h(field)}" required>${pool.map((u,i)=>`<option value="${h(u.id)}" ${i===index?'selected':''}>${h(unitName(u))} · ${h(unitTrait(u))}${u.favorite?' ★':''}</option>`).join('')}</select>`}
+function isValuable(u){return u.favorite||unitFit(u).score>=5}
+function ensureValuableConsent(units,action){const risky=units.filter(isValuable);return !risky.length||window.confirm(`ATENÇÃO: ${risky.length} unidade(s) selecionada(s) são favoritas ou possuem habilidades Excelentes. Deseja realmente ${action}?`)}
+function opRecord(kind,units,extra={}){state.unitOperations.push({kind,date:new Date().toISOString(),units:units.map(u=>u.id),...extra});state.unitOperations=state.unitOperations.slice(-150)}
+const empty=()=>({schema:1,path:0,cycle:1,inventory:{},absent:{},sales:[],removals:[],history:[],completed:[],fusions:{plans:{},history:[],genericPlans:[],genericHistory:[]},units:[],unitArchive:[],unitOperations:[],finance:{nova:null,credits:null,budget:null},financeLedger:[],lastModified:Date.now()});
 function sanitize(raw){if(!raw||typeof raw!=='object'||raw.schema!==1)throw new Error('Arquivo incompatível ou sem dados válidos.');
  const x=empty();x.path=Number(raw.path)||0;if(!Number.isInteger(x.path)||x.path<0||x.path>6)throw new Error('Caminho inválido.');
  x.cycle=Number(raw.cycle)||1;if(!Number.isInteger(x.cycle)||x.cycle<1||x.cycle>40)throw new Error('Ciclo inválido.');
  if(raw.inventory&&typeof raw.inventory==='object')for(const [n,ts]of Object.entries(raw.inventory)){if(!validName(n)||!ts||typeof ts!=='object')continue;for(const [t,q]of Object.entries(ts)){if(!validTier(n,t)||!Number.isSafeInteger(q)||q<1||q>100000)continue;(x.inventory[n]??={})[t]=q}}
  if(raw.absent&&typeof raw.absent==='object')for(const [n,v]of Object.entries(raw.absent))if(validName(n)&&v===true&&!x.inventory[n])x.absent[n]=true;
  for(const [k,max]of [['sales',30],['history',30],['completed',40],['removals',100]]) if(Array.isArray(raw[k]))x[k]=raw[k].filter(a=>a&&typeof a==='object').slice(-max).map(a=>JSON.parse(JSON.stringify(a))).filter(a=>JSON.stringify(a).length<25000);
- x.fusions=cleanFusion(raw.fusions);x.lastModified=Number(raw.lastModified)||Date.now();return x;
+ x.fusions=cleanFusion(raw.fusions);
+ x.units=normalizeUnits(raw.units,x.inventory);
+ x.unitArchive=Array.isArray(raw.unitArchive)?raw.unitArchive.filter(x=>x&&typeof x==='object'&&validName(x.name)&&validTier(x.name,x.tier)).slice(-350).map(x=>JSON.parse(JSON.stringify(x))):[];
+ x.unitOperations=Array.isArray(raw.unitOperations)?raw.unitOperations.filter(x=>x&&typeof x==='object').slice(-150).map(x=>JSON.parse(JSON.stringify(x))):[];
+ const f=raw.finance||{};for(const k of ['nova','credits','budget'])x.finance[k]=(f[k]===null||f[k]===undefined||f[k]==='')?null:(Number.isFinite(Number(f[k]))&&Number(f[k])>=0?Number(f[k]):null);
+ x.financeLedger=Array.isArray(raw.financeLedger)?raw.financeLedger.filter(x=>x&&typeof x==='object').slice(-200):[];
+ x.lastModified=Number(raw.lastModified)||Date.now();return x;
 }
 // O armazenamento v1 NÃO é apagado. Na primeira abertura, é copiado para a conta inicial.
 function readLegacy(){try{const raw=localStorage.getItem(STORE);return raw?sanitize(JSON.parse(raw)):empty()}catch(e){return empty()}}
@@ -98,12 +148,18 @@ function sanitizeAccounts(raw){
   ids.add(id);names.add(name.toLocaleLowerCase('pt-BR'));
   return {id,name,data:sanitize(row.data),notices:sanitizeNotices(row.notices)};
  });
- return {schema:2,activeId:a.some(x=>x.id===raw.activeId)?raw.activeId:a[0].id,accounts:a};
+ return {schema:2,activeId:a.some(x=>x.id===raw.activeId)?raw.activeId:a[0].id,accounts:a,
+  customTraits:Array.isArray(raw.customTraits)?raw.customTraits.filter(x=>x&&typeof x.name==='string'&&x.name.trim()&&x.name.length<=100).slice(0,80).map(x=>({id:String(x.id||''),name:String(x.name).trim()})):[]};
 }
 function loadAccounts(){
  const old=localStorage.getItem(ACCOUNTS_KEY);
- if(old!==null)return sanitizeAccounts(JSON.parse(old));
- const initial={schema:2,activeId:newId(),accounts:[]};
+ if(old!==null){
+  const parsed=JSON.parse(old);
+  const needsMigration=parsed?.schema===2&&parsed.accounts?.some(a=>!Array.isArray(a?.data?.units));
+  if(needsMigration&&!localStorage.getItem(PRE_TRAITS_BACKUP))localStorage.setItem(PRE_TRAITS_BACKUP,old);
+  return sanitizeAccounts(parsed);
+ }
+ const initial={schema:2,activeId:newId(),accounts:[],customTraits:[]};
  initial.accounts.push({id:initial.activeId,name:'Minha conta',data:readLegacy(),notices:readLegacyNotices()});
  // Falha de gravação bloqueia alterações para evitar falsa sensação de segurança.
  localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(initial));
@@ -113,7 +169,7 @@ let accountsDb=null,storageError='';
 try{accountsDb=loadAccounts()}catch(e){storageError=e.message||'Armazenamento indisponível.';accountsDb={schema:2,activeId:'bloqueada',accounts:[{id:'bloqueada',name:'Recuperação',data:readLegacy(),notices:{}}]}}
 function currentAccount(){return accountsDb.accounts.find(a=>a.id===accountsDb.activeId)||accountsDb.accounts[0]}
 let state=currentAccount().data,unreadNotices=currentAccount().notices;
-let ui={tab:'inventory',open:new Set(['pending']),baseAccordionKey:'',search:'',pathFilter:0,detail:'',detailTier:'',browsePath:1,browseCycle:1,catalogSearch:'',catalogRarity:'Todos',catalogAll:false,batch:{},batchMode:true,setupPath:1,setupCycle:1,setupRegister:true,pathSearch:'',pathChecklistFilter:'Todos',pathBatch:{},pathDraft:{},fusionFilter:'Todas',fusionSearch:'',fusionOpen:'',fusionDraft:{},inventorySearch:'',inventoryScope:'mine',inventoryFilter:'Todos',fusionIdeaFilter:'Todas',fusionIdeaExpanded:false,catalogVisible:false,lastQuickSale:false,modal:null},undo=null,toastTimer=null;
+let ui={tab:'inventory',open:new Set(['pending']),baseAccordionKey:'',search:'',pathFilter:0,detail:'',detailTier:'',browsePath:1,browseCycle:1,catalogSearch:'',catalogRarity:'Todos',catalogAll:false,batch:{},batchMode:true,setupPath:1,setupCycle:1,setupRegister:true,pathSearch:'',pathChecklistFilter:'Todos',pathBatch:{},pathDraft:{},fusionFilter:'Todas',fusionSearch:'',fusionOpen:'',fusionDraft:{},inventorySearch:'',inventoryScope:'mine',inventoryFilter:'Todos',fusionIdeaFilter:'Todas',fusionIdeaExpanded:false,catalogVisible:false,lastQuickSale:false,guideSearch:'',guideOnlyFavorites:false,modal:null},undo=null,toastTimer=null;
 function saveAccountsBlob(){
  if(storageError){notify('Salvamento bloqueado: '+storageError);return false}
  try{localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accountsDb));window.DroidDrive?.noteLocalChange();return true}
@@ -146,15 +202,38 @@ function restoreAccountsSnapshot(){
   accountsDb=prev;resetAccountView();render();notify('Contas anteriores restauradas.');
  }catch(e){notify('Não foi possível desfazer a restauração.');}
 }
+function undoLastOperation(){
+ const k=OP_UNDO_KEY+currentAccount().id;
+ try{
+  const entry=JSON.parse(localStorage.getItem(k)||'null');
+  if(!entry?.before)return notify('Nenhuma movimentação anterior para recuperar.');
+  if(Number(entry.after)!==Number(state.lastModified))return notify('Houve alterações depois da movimentação. Exporte o backup e revise antes de restaurar manualmente.');
+  if(!window.confirm('Desfazer a última alteração desta conta? As alterações registradas depois dela não serão preservadas.'))return;
+  const previous=sanitize(JSON.parse(entry.before));
+  // Guardar um registro da correção para auditoria, preservando o estado anterior.
+  previous.unitOperations.push({kind:'correção — última operação desfeita',date:new Date().toISOString(),units:[]});
+  previous.unitOperations=previous.unitOperations.slice(-150);
+  state=previous;unreadNotices=JSON.parse(entry.notices||'{}');
+  if(!persist())throw new Error('Falha na gravação da reversão.');
+  localStorage.removeItem(k);render();notify('Última movimentação recuperada com sucesso.');
+ }catch(e){notify('Não foi possível desfazer: '+e.message)}
+}
 function salesMap(){return new Map(requireCounts().saleEntries.map(x=>[nextId(x.name,x.tier),x.qty]))}
 function reconcileNotices(before){const after=salesMap();for(const [key,v] of Object.entries(unreadNotices)){const left=after.get(key)||0;if(left<=0)delete unreadNotices[key];else v.qty=Math.min(v.qty,left)}
  for(const e of requireCounts().saleEntries){const k=nextId(e.name,e.tier),newly=e.qty-(before.get(k)||0);if(newly>0)unreadNotices[k]={name:e.name,tier:e.tier,qty:Math.min(e.qty,(unreadNotices[k]?.qty||0)+newly),createdAt:new Date().toISOString()}}
  storeNotices();}
 function listNewSales(){const available=salesMap();return Object.values(unreadNotices).filter(x=>available.has(nextId(x.name,x.tier))).map(x=>({...x,qty:Math.min(x.qty,available.get(nextId(x.name,x.tier)))})).filter(x=>x.qty>0)}
 const app=document.getElementById('app');
-function persist(){requireCountsCache=null;state.lastModified=Date.now();return writeAccounts()}
+function persist(){requireCountsCache=null;state.lastModified=Math.max(Date.now(),Number(state.lastModified||0)+1);return writeAccounts()}
 function notify(message,withUndo=false){const el=document.getElementById('toast');el.innerHTML=h(message)+(withUndo?` <button type="button" data-action="undo">Desfazer</button>`:'');el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),5700)}
-function save(mutator,message){ui.lastQuickSale=false;const before=JSON.stringify(state),oldNotices=JSON.stringify(unreadNotices),oldSales=salesMap();mutator();persist();reconcileNotices(oldSales);undo=()=>{state=sanitize(JSON.parse(before));unreadNotices=JSON.parse(oldNotices);persist();storeNotices();render();notify('Alteração desfeita.')};render();if(message)notify(message,!!undo)}
+function save(mutator,message){
+ ui.lastQuickSale=false;const before=JSON.stringify(state),oldNotices=JSON.stringify(unreadNotices),oldSales=salesMap();
+ try{mutator();if(!persist())throw new Error('Falha ao salvar.');reconcileNotices(oldSales);
+  try{localStorage.setItem(OP_UNDO_KEY+currentAccount().id,JSON.stringify({before,after:state.lastModified,notices:oldNotices,savedAt:new Date().toISOString()}))}catch(err){}
+ }
+ catch(err){state=sanitize(JSON.parse(before));unreadNotices=JSON.parse(oldNotices);requireCountsCache=null;render();notify('Alteração cancelada: '+err.message);return false}
+ undo=()=>{state=sanitize(JSON.parse(before));unreadNotices=JSON.parse(oldNotices);persist();storeNotices();render();notify('Alteração desfeita.')};render();if(message)notify(message,!!undo);return true;
+}
 const reqFor=(name,path=state.path,from=state.cycle)=>R.filter(x=>x.name===name&&x.p===path&&x.c>=from).sort((a,b)=>a.c-b.c);
 const needAt=(name,p,c)=>pick(p,c).filter(x=>x.name===name);
 function countOwned(name){return Object.values(state.inventory[name]||{}).reduce((s,n)=>s+n,0)}
@@ -282,7 +361,7 @@ function entryInventory(e,baseQuickSale=false){
  const statusHtml=upgradeText ? upgradeText : (split.keep&&!now&&nextCycle ? futureHtml : h(status));
  // A ação de venda fica FORA do botão que abre detalhes: evita dois cliques concorrentes.
  const sellQuick=baseQuickSale?`<div class="base-quick-actions"><button type="button" class="base-sell-one" data-action="sellOne" data-name="${h(e.name)}" data-tier="${h(e.tier)}" title="Registrar a venda de 1 unidade no jogo e atualizar a base imediatamente" aria-label="Registrar venda de 1 unidade de ${h(e.name)} ${h(variantLabel(e.tier))}">Registrar venda</button>${fusionReserved?'<small class="base-risk" title="Há reserva ativa para fusão">⚗ Reservado para fusão</small>':upgrade?'<small class="base-risk" title="Esta variante será necessária para evoluir">⚠ Guardar para evoluir</small>':split.keep?'<small class="base-risk" title="Pode ser necessário no seu caminho">⚠ Necessário no caminho</small>':''}</div>`:'';
- return `<div class="entry droid-entry ${baseQuickSale?'base-owned-row':''}"><button type="button" ${panelButton(e.name,e.tier)}>${imageOf(e.name,false,e.tier)}<span class="droid-info"><span class="droid-heading">${h(e.name)} ${rarityTag(byName[e.name]?.rarity)} ${variantBadge(e.tier)}</span><span class="entry-sub">${nf(e.qty)} unidade(s) · ${statusHtml}</span>${split.keep&&now&&future?`<span class="entry-sub future-line">${futureHtml}</span>`:''}<span class="quantities">${split.keep?`<span class="keep-label">Guardar ${split.keep}</span>`:''}${fusionReserved?`<span class="fusion-keep-label">Fusão ${fusionReserved}</span>`:''}${split.sell?`<span class="sell-label">Pode Vender ${split.sell}</span>`:''}${FUSION_INGREDIENTS[e.name]?.length?`<span class="fusion-keep-label">⚗ Fusão especial · ${FUSION_INGREDIENTS[e.name].length}</span>`:''}</span></span>${!baseQuickSale?'<span class="entry-arrow">›</span>':''}</button>${sellQuick}</div>`;
+ return `<div class="entry droid-entry ${baseQuickSale?'base-owned-row':''}"><button type="button" ${panelButton(e.name,e.tier)}>${imageOf(e.name,false,e.tier)}<span class="droid-info"><span class="droid-heading">${h(e.name)} ${unitsFor(e.name,e.tier).some(u=>u.favorite)?'<span class="unit-fav-icon" title="Favorito">★</span>':''} ${rarityTag(byName[e.name]?.rarity)} ${variantBadge(e.tier)}</span><span class="entry-sub">${nf(e.qty)} unidade(s) · ${statusHtml}</span>${split.keep&&now&&future?`<span class="entry-sub future-line">${futureHtml}</span>`:''}<span class="quantities">${split.keep?`<span class="keep-label">Guardar ${split.keep}</span>`:''}${fusionReserved?`<span class="fusion-keep-label">Fusão ${fusionReserved}</span>`:''}${split.sell?`<span class="sell-label">Pode Vender ${split.sell}</span>`:''}${FUSION_INGREDIENTS[e.name]?.length?`<span class="fusion-keep-label">⚗ Fusão especial · ${FUSION_INGREDIENTS[e.name].length}</span>`:''}</span></span>${!baseQuickSale?'<span class="entry-arrow">›</span>':''}</button>${sellQuick}</div>`;
 }
 function requirementRow(r){const count=meets(r.name,r.tier),currBest=best(r.name),owned=anyOwned(r.name),isAbsent=state.absent[r.name]===true,good=count>=needAt(r.name,state.path,state.cycle).length;
  let info=good?`Requisito ${variantText(r.tier)} atendido`:owned?`Necessário ${variantText(r.tier)} — Possui ${variantText(currBest)}`:`Necessário ${variantText(r.tier)} — ${isAbsent?'Não possui':'Não cadastrado'}`;
@@ -738,12 +817,105 @@ function mergeBackupAccounts(rows,selectImported=false){
    list.push(fresh);if(selectImported)chosen=fresh.id;
   }
  }
- return {schema:2,activeId:chosen,accounts:list};
+ return {schema:2,activeId:chosen,accounts:list,customTraits:accountsDb.customTraits||[]};
 }
 function accountSettings(){return `<section class="card card-pad account-settings"><div class="wizard-path-title"><div><h2 style="margin:0">Minhas contas</h2><p class="muted small">Cada conta possui inventário, progresso e avisos próprios.</p></div>${btn('+ Nova conta','createAccount',{kind:'secondary'})}</div><div class="account-list">${accountsDb.accounts.map(a=>{const active=a.id===accountsDb.activeId,qty=arrInventory(a.data).reduce((n,e)=>n+e.qty,0);return `<div class="account-row ${active?'account-current':''}"><div class="account-row-info"><strong>${h(a.name)}</strong>${active?'<span class="account-active-tag">Ativa</span>':''}<small>Caminho ${a.data.path||'não definido'} · Ciclo ${a.data.cycle} · ${nf(qty)} droid(s)</small></div><div class="account-row-buttons">${!active?btn('Usar','activateAccount',{kind:'secondary',size:'small',attrs:`data-id="${h(a.id)}"` }):''}${btn('Renomear','renameAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"`})}${accountsDb.accounts.length>1?btn('Excluir','deleteAccount',{kind:'ghost',size:'small',attrs:`data-id="${h(a.id)}"` }):''}</div></div>`}).join('')}</div><p class="mini-note">A última conta utilizada será aberta automaticamente. Para trocar de conta em qualquer tela, use o seletor no topo.</p></section>`}
-function settings(){let s=getStats();return titlePage('CONFIGURAÇÕES','Seus dados, sob seu controle','Sem cadastro. Tudo fica neste navegador e você pode fazer backup quando quiser.')+accountSettings()+(window.DroidDrive?.panelHtml()||'')+`<div class="grid-3" style="margin-top:17px"><div class="card card-pad"><h3>⇩ Backup da conta ativa</h3><p class="muted small">Baixe apenas <strong>${h(currentAccount().name)}</strong>, com o nome no arquivo. Ao importar, o nome será mantido.</p>${btn('Baixar backup desta conta','exportActive',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇩ Backup completo</h3><p class="muted small">Salve todas as contas, seus nomes, inventários, ciclos e históricos em um único arquivo JSON.</p>${btn('Baixar todas as contas','export',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇧ Importar backup</h3><p class="muted small">Mantém o nome da conta do arquivo. Se já existir, perguntaremos antes de substituir; as demais contas serão preservadas.</p>${btn('Escolher arquivo','import',{kind:'secondary'})}</div></div><section class="card card-pad" style="margin-top:17px"><h3>Meu progresso</h3><div class="small muted">Caminho: <b>${state.path||'Não configurado'}</b> · Ciclo: <b>${state.cycle}</b> · Droids cadastrados: <b>${s.total}</b></div><div class="utility-bar">${state.path?`${btn('Corrigir ciclo','cycle',{kind:'secondary'})}${btn('Trocar de caminho','changePath',{kind:'ghost'})}`:btn('Configurar caminho','setup',{kind:'secondary'})}</div>${state.history.length?`<h4 class="subheading">Caminhos anteriores</h4>${state.history.slice(-5).reverse().map(x=>`<div class="details-line">Caminho ${h(x.path)} · Ciclo ${h(x.cycle)} <span class="small">${h(x.date||'')}</span></div>`).join('')}`:''}</section>${state.sales?.length?`<section class="card card-pad base-sales-history" style="margin-top:17px"><h3>Últimas vendas registradas</h3><p class="mini-note">Movimentações registradas pelo botão Registrar venda, nesta base ou nos detalhes.</p>${state.sales.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}${state.fusions?.genericHistory?.length?`<section class="card card-pad" style="margin-top:17px"><h3>Últimas fusões sugeridas realizadas</h3>${state.fusions.genericHistory.slice(-10).reverse().map(x=>`<div class="details-line"><span>${h(x.result)} · ${variantText(x.tier)}</span><b>${h(fusionKindName[x.kind])}</b></div>`).join('')}</section>`:''}${state.removals?.length?`<section class="card card-pad removal-history" style="margin-top:17px"><h3>Últimas retiradas do inventário</h3><p class="mini-note">Registros do botão “Não possuo mais”, por conta. Vendas e fusões têm registros separados.</p>${state.removals.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}<section class="card card-pad" style="margin-top:17px"><h3>Verificar fotos dos droids</h3><p class="small muted">Confira se as imagens dos 100 droids carregam na sua conexão. O teste não altera seu inventário.</p>${btn('Testar as 100 imagens','auditImages',{kind:'secondary'})}</section><section class="card card-pad" style="margin-top:17px"><h3>Privacidade e armazenamento</h3><p class="small muted">Os dados não são enviados ao Google Sheets nem ao GitHub. O inventário fica salvo neste navegador. Se você autorizar o Google Drive, uma cópia de backup também será enviada à sua conta Google. Para sincronizar entre aparelhos, conecte a mesma conta Google em ambos; mudanças da mesma conta feitas simultaneamente exigem revisão. Na navegação anônima ou após limpar dados do navegador, você pode perder informações sem backup.</p><div class="utility-bar">${btn('Conferir fonte dos requisitos','source',{kind:'ghost'})}${localStorage.getItem(ACCOUNTS_UNDO)?btn('Desfazer última restauração','undoRestore',{kind:'secondary'}):''}</div></section>`+footer();}
-function footer(){return `<footer class="footer-note">Referência comunitária: <a href="${h(DB.source)}" target="_blank" rel="noopener noreferrer">Droidex · 6 caminhos</a> e <a href="${h(DB.catalogSource)}" target="_blank" rel="noopener noreferrer">Droid Tycoon Helper · 100 droids e chips</a>. Base ${h(DB.version)}. Informações de progressão podem mudar com atualizações do jogo. “Pode Vender” respeita as evoluções necessárias e as reservas de fusão, mas não considera renda nem coleção.</footer>`}
-function render(){requireCountsCache=null;if(storageError){app.innerHTML=`<div class="card card-pad"><h2>Armazenamento indisponível</h2><p>Não foi possível abrir suas contas: ${h(storageError)}. Seus dados antigos não foram apagados. Não faça novos cadastros neste momento; abra o site no navegador habitual ou restaure um backup em uma instalação funcional.</p></div>`;return}app.innerHTML=ui.tab==='dashboard'?dashboard():ui.tab==='search'?search():ui.tab==='inventory'?inventory():ui.tab==='pathlist'?fullPathChecklist():ui.tab==='fusion'?fusionPage():settings();accountHeader();document.querySelectorAll('[data-tab]').forEach(el=>{el.classList.toggle('active',el.dataset.tab===ui.tab);if(el.dataset.tab===ui.tab)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('top-breadcrumb').textContent={dashboard:'Meu caminho',search:'Consulta livre',inventory:'Minha Base',pathlist:'Lista do caminho',fusion:'Fusões especiais',settings:'Configurações'}[ui.tab];renderModal();renderDetail();}
+function settings(){let s=getStats();return titlePage('CONFIGURAÇÕES','Seus dados, sob seu controle','Sem cadastro. Tudo fica neste navegador e você pode fazer backup quando quiser.')+accountSettings()+(window.DroidDrive?.panelHtml()||'')+`<div class="grid-3" style="margin-top:17px"><div class="card card-pad"><h3>⇩ Backup da conta ativa</h3><p class="muted small">Baixe apenas <strong>${h(currentAccount().name)}</strong>, com o nome no arquivo. Ao importar, o nome será mantido.</p>${btn('Baixar backup desta conta','exportActive',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇩ Backup completo</h3><p class="muted small">Salve todas as contas, seus nomes, inventários, ciclos e históricos em um único arquivo JSON.</p>${btn('Baixar todas as contas','export',{kind:'secondary'})}</div><div class="card card-pad"><h3>⇧ Importar backup</h3><p class="muted small">Mantém o nome da conta do arquivo. Se já existir, perguntaremos antes de substituir; as demais contas serão preservadas.</p>${btn('Escolher arquivo','import',{kind:'secondary'})}</div></div><section class="card card-pad" style="margin-top:17px"><h3>Meu progresso</h3><div class="small muted">Caminho: <b>${state.path||'Não configurado'}</b> · Ciclo: <b>${state.cycle}</b> · Droids cadastrados: <b>${s.total}</b></div><div class="utility-bar">${state.path?`${btn('Corrigir ciclo','cycle',{kind:'secondary'})}${btn('Trocar de caminho','changePath',{kind:'ghost'})}`:btn('Configurar caminho','setup',{kind:'secondary'})}</div>${state.history.length?`<h4 class="subheading">Caminhos anteriores</h4>${state.history.slice(-5).reverse().map(x=>`<div class="details-line">Caminho ${h(x.path)} · Ciclo ${h(x.cycle)} <span class="small">${h(x.date||'')}</span></div>`).join('')}`:''}</section>${state.sales?.length?`<section class="card card-pad base-sales-history" style="margin-top:17px"><h3>Últimas vendas registradas</h3><p class="mini-note">Movimentações registradas pelo botão Registrar venda, nesta base ou nos detalhes.</p>${state.sales.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}${state.fusions?.genericHistory?.length?`<section class="card card-pad" style="margin-top:17px"><h3>Últimas fusões sugeridas realizadas</h3>${state.fusions.genericHistory.slice(-10).reverse().map(x=>`<div class="details-line"><span>${h(x.result)} · ${variantText(x.tier)}</span><b>${h(fusionKindName[x.kind])}</b></div>`).join('')}</section>`:''}${state.removals?.length?`<section class="card card-pad removal-history" style="margin-top:17px"><h3>Últimas retiradas do inventário</h3><p class="mini-note">Registros do botão “Não possuo mais”, por conta. Vendas e fusões têm registros separados.</p>${state.removals.slice(-10).reverse().map(e=>`<div class="details-line"><span>${h(e.name)} · ${variantText(e.tier)}</span><b>−${nf(e.qty)}</b></div>`).join('')}</section>`:''}<section class="card card-pad" style="margin-top:17px"><h3>Verificar fotos dos droids</h3><p class="small muted">Confira se as imagens dos 100 droids carregam na sua conexão. O teste não altera seu inventário.</p>${btn('Testar as 100 imagens','auditImages',{kind:'secondary'})}</section><section class="card card-pad" style="margin-top:17px"><h3>Privacidade e armazenamento</h3><p class="small muted">Os dados não são enviados ao Google Sheets nem ao GitHub. O inventário fica salvo neste navegador. Se você autorizar o Google Drive, uma cópia de backup também será enviada à sua conta Google. Para sincronizar entre aparelhos, conecte a mesma conta Google em ambos; mudanças da mesma conta feitas simultaneamente exigem revisão. Na navegação anônima ou após limpar dados do navegador, você pode perder informações sem backup.</p><div class="utility-bar">${btn('Conferir fonte dos requisitos','source',{kind:'ghost'})}${localStorage.getItem(OP_UNDO_KEY+currentAccount().id)?btn('Desfazer última movimentação','undoOperation',{kind:'secondary'}):''}${localStorage.getItem(ACCOUNTS_UNDO)?btn('Desfazer última restauração','undoRestore',{kind:'secondary'}):''}</div></section>`+footer();}
+function footer(){return `<footer class="footer-note">Referência comunitária: <a href="${h(DB.source)}" target="_blank" rel="noopener noreferrer">Droidex · 6 caminhos</a> e <a href="${h(DB.catalogSource)}" target="_blank" rel="noopener noreferrer">Droid Tycoon Helper · 100 droids e chips</a>. Progressão ${h(DB.version)} · Habilidades ${h(TRAITS.version)}. Informações de progressão podem mudar com atualizações do jogo. “Pode Vender” respeita as evoluções necessárias e as reservas de fusão, mas não considera renda nem coleção.</footer>`}
+// ===== Guia de Habilidades v27 =====
+const TRAIT_GRADES_PT={Common:'Comum',Gold:'Ouro',Diamond:'Diamante',Rainbow:'Arco-íris'};
+const traitGradeLabel=g=>TRAIT_GRADES_PT[g]||g;
+const financeValue=(key)=>state.finance?.[key]==null?'Não informado':nf(state.finance[key]);
+const currencyLabel=key=>key==='credits'?'créditos':'Cristais Nova';
+const knownTraitPrice=(rarity,rolls)=>TRAITS.price(rarity,rolls);
+const costDisplay=(rarity,rolls=0)=>{const amt=knownTraitPrice(rarity,rolls);return amt==null?'Custo em créditos não confirmado':nf(amt)+' Cristais Nova';};
+// Aceita os sufixos comuns de créditos do jogo sem arredondamento para inteiros pequenos.
+function parseGameMoney(raw){const v=String(raw??'').trim().replace(/\s+/g,'');if(!v)return null;
+ const match=v.match(/^(\d+(?:[.,]\d+)?)\s*(K|M|B|T|Qa|Qi)?$/i);
+ if(!match)return NaN;
+ const factor={k:1e3,m:1e6,b:1e9,t:1e12,qa:1e15,qi:1e18};
+ const n=Number(match[1].replace(',','.'))*(factor[(match[2]||'').toLowerCase()]||1);
+ return Number.isFinite(n)&&n>=0&&n<=1e30?n:NaN;
+}
+function traitStatusBadge(u){const f=unitFit(u);const color=f.label==='Excelente'?'success':f.label==='Boa'?'blue':f.label==='Situacional'?'warning':'muted';return badge(f.label,color)}
+function detailUnitsHtml(name,tier){
+ const list=unitsFor(name,tier);
+ return `<div class="units-panel"><div class="units-heading"><b>Unidades e habilidades (${list.length})</b><small>Cada unidade possui histórico próprio.</small></div>${list.map(u=>`<div class="unit-line"><div class="unit-line-main"><b>${u.favorite?'★ ':''}${h(unitName(u))}</b><small>${h(unitTrait(u))}${u.grade?' · '+h(traitGradeLabel(u.grade)):''} ${u.bonus?h(u.bonus):''}</small>${traitStatusBadge(u)}</div><div class="unit-line-actions">${btn(u.favorite?'★':'☆','favoriteUnit',{kind:'ghost',size:'small',attrs:`data-id="${h(u.id)}" title="Marcar favorito"`})}${btn('Avaliar','unitProfile',{kind:'secondary',size:'small',attrs:`data-id="${h(u.id)}"`})}</div></div>`).join('')}</div>`;
+}
+function traitOptions(name,rarity,grade,chosen='',custom=true){
+ const allowed=TRAITS.pool(name,rarity,grade);
+ let entries=allowed.map(x=>({id:x.id,label:x.label}));
+ entries.push(...(accountsDb.customTraits||[]).map(x=>({id:x.id,label:x.name+' · Personalizada'})));
+ if(chosen&&!entries.some(x=>x.id===chosen))entries.push({id:chosen,label:'Habilidade antiga / não verificada: '+chosen});
+ return `<option value="">Selecione uma habilidade</option>${entries.map(x=>`<option value="${h(x.id)}" ${chosen===x.id?'selected':''}>${h(x.label)}</option>`).join('')}${custom?'<option value="__custom__">+ Cadastrar habilidade personalizada</option>':''}`;
+}
+function traitFunctionsRow(u){const d=byName[u.name],functions=TRAITS.functionsFor(u.name,d.role);return `<div class="field"><label>Funções avaliadas (pode selecionar mais de uma)</label><div class="unit-check-grid">${functions.map(f=>`<label><input type="checkbox" name="uses" value="${h(f.id)}" ${(u.uses||[]).includes(f.id)?'checked':''}> ${h(f.name)}</label>`).join('')}</div><small>Se não marcar nenhuma, o guia avaliará todas as funções naturais conhecidas.</small></div>`}
+function guideSummary(u){const d=byName[u.name],fit=unitFit(u);return `<div class="trait-evaluation">${traitStatusBadge(u)} <strong>${h(unitTrait(u))}</strong>${u.bonus?' · '+h(u.bonus):''}<p>${h(fit.explain)}</p>${(TRAITS.functionsFor(u.name,d.role)||[]).map(f=>`<small><b>${h(f.name)}:</b> ${h(f.detail)}</small>`).join('')}</div>`}
+function recommendedTraits(name,chosenUses=[]){
+ const d=byName[name],functions=TRAITS.functionsFor(name,d.role);
+ const target=chosenUses.length?chosenUses:functions.map(f=>f.id);
+ const recommended=TRAITS.candidates(name,d.rarity,d.role,target);
+ const top=recommended.filter((x,i,all)=>all.findIndex(y=>y.trait.id===x.trait.id)===i).slice(0,3);
+ let html=``;
+ if(name==='C-3PO'&&target.every(x=>x==='credits'||x==='craft')){
+  html+=`<div class="trait-caution"><b>Habilidade Perfeita: em análise.</b> Não há confirmação de habilidade sorteável que amplie diretamente os bônus especiais de fabricação (+40 s/s) e créditos (3×) do C-3PO nas estações. A exclusiva Droid Sell Master mantém o bônus de venda durante o trabalho, mas não comprova aumento dessas duas estações.</div>`;
+ }else if(top.length){
+  html+=`<div class="units-heading"><b>Melhores candidatas conhecidas</b><small>Avaliação por compatibilidade e efeito; “Perfeita” exige evidências adicionais.</small></div>`;
+  html+=top.map(x=>`<div class="trait-recommendation"><div><b>${h(x.trait.label)}</b> ${badge(x.fit.label,x.fit.score>=5?'success':'blue')}<small>${h(x.trait.slot)} · ${h(x.trait.effect)}</small></div><div class="trait-roll"><b>${traitGradeLabel(x.grade)}</b><small>${x.odds==null?'Chance desconhecida':(x.odds*100).toFixed(2).replace('.',',')+'% / primeira leitura'}</small></div></div>`).join('');
+ }else html+=`<div class="trait-caution">Nenhuma combinação com benefício comprovado suficiente para esta função. Em análise.</div>`;
+  const focus=top.filter(x=>x.odds!=null);
+ if(focus.length){const pExact=focus[0].odds,pGood=focus.reduce((sum,x)=>sum+x.odds,0);
+  const pFormat=p=>(p*100).toFixed(2).replace('.',',')+'%';
+  const row=(p,n)=>`${pFormat(1-Math.pow(1-p,n))}`;
+  html+=`<div class="trait-chances"><h4>Probabilidades estimadas (primeira leitura)</h4><div class="trait-chance-rows"><span>Melhor candidata ${h(focus[0].trait.label)} (${h(traitGradeLabel(focus[0].grade))})</span><b>${pFormat(pExact)}</b><span>Uma das ${focus.length} boas alternativas listadas</span><b>${pFormat(pGood)}</b></div><div class="trait-chance-table"><div><b>Tentativas</b><b>Melhor candidata</b><b>Alguma alternativa</b></div>${[5,10,20].map(n=>`<div><span>${n}</span><span>${row(pExact,n)}</span><span>${row(pGood,n)}</span></div>`).join('')}</div><p class="mini-note">Acúmulo ilustrativo supondo sorteios independentes; os rerolls do jogo impedem repetir a combinação exata anterior e podem mudar os resultados. Não é garantia nem previsão exata.</p></div>`;
+ }
+ if(target.length>1){
+  const segments=functions.filter(f=>target.includes(f.id));
+  html+=`<details class="trait-by-function"><summary>Consultar as 3 melhores habilidades por função (${segments.length})</summary>${segments.map(fn=>{
+   if(name==='C-3PO'&&['craft','credits'].includes(fn.id))return `<section><b>${h(fn.name)}</b><p class="mini-note">Habilidade Perfeita: Em análise. Não há bônus do scanner confirmado para melhorar diretamente a estação. Não recomendamos reroll por essa hipótese.</p></section>`;
+   const items=TRAITS.candidates(name,d.rarity,d.role,[fn.id]).filter((x,i,all)=>all.findIndex(y=>y.trait.id===x.trait.id)===i).slice(0,3);
+   return `<section><b>${h(fn.name)}</b>${items.map(x=>`<p class="mini-note">${h(x.trait.label)} (${h(traitGradeLabel(x.grade))}) · ${x.odds!=null?(x.odds*100).toFixed(2).replace('.',',')+'% na primeira leitura':'Chance desconhecida'} · ${h(x.fit.label)}</p>`).join('')||'<p class="mini-note">Em análise: nenhuma candidata com benefício comprovado.</p>'}</section>`;
+  }).join('')}</details>`;
+ }
+ html+=`<p class="mini-note">A chance acima corresponde a uma combinação exata de habilidade + classificação na primeira leitura. Repetições impedidas pelos rerolls e atualizações do jogo podem alterar as probabilidades. Fonte independente v${h(TRAITS.version)}, verificada em ${h(TRAITS.checked)}: <a href="${h(TRAITS.SOURCE)}" target="_blank" rel="noopener">Droidex</a>.</p>`;
+ return html;
+}
+function unitAdvice(u){const f=unitFit(u),d=byName[u.name],next=costDisplay(d.rarity,Math.max(1,u.rolls));const opt=TRAITS.candidates(u.name,d.rarity,d.role,u.uses||[]);
+ if(u.traitStatus==='unknown')return 'Confira qual habilidade existe nesta unidade antes de investir.';
+ if(u.traitStatus==='none')return `Primeira leitura: ${costDisplay(d.rarity,0)}. Confira o valor exibido no jogo antes de gastar.`;
+ if(f.label==='Excelente')return `Conservar: combinação excelente. Próxima tentativa: ${next}. Um novo sorteio pode resultar em algo pior.`;
+ if(f.score<0)return 'Em análise: dados insuficientes para recomendar gastar recursos.';
+ return opt.length?`Há alternativas potencialmente melhores, mas um novo sorteio pode piorar o resultado. Compare o custo real, a chance e seu orçamento. Próxima tentativa: ${next}.`:'Não há alternativa de melhora confirmada para a função escolhida.';
+}
+function guideAccountRanking(){
+ const protectedKeys=new Set(requireCounts().protectedEntries.map(x=>nextId(x.name,x.tier)));
+ const available=state.units.filter(u=>u.traitStatus==='known');
+ const ordered=available.map(u=>{const f=unitFit(u),d=byName[u.name],best=TRAITS.candidates(u.name,d.rarity,d.role,u.uses||[])[0];
+  const cost=TRAITS.price(d.rarity,u.rolls||0),currency=TRAITS.currency(d.rarity),balance=state.finance[currency];
+  const room=currency==='nova'&&state.finance.budget!=null?Math.min(balance??Infinity,state.finance.budget):balance;
+  const affordability=cost==null?0:room!=null&&room!==Infinity&&room<cost?-18:5;
+  const expected=best?.odds==null?0:Math.min(15,Math.round(best.odds*100));
+  const p=(u.favorite?100:0)+(f.score<=0?35:f.score===3?20:0)+(best?expected:0)+affordability-(protectedKeys.has(nextId(u.name,u.tier))?15:0);
+  return {u,f,best,cost,currency,p};
+ }).filter(x=>x.f.score>=0&&x.f.score<5).sort((a,b)=>b.p-a.p||a.u.name.localeCompare(b.u.name,'pt-BR'));
+ const first=state.units.filter(u=>u.traitStatus==='none').sort((a,b)=>Number(b.favorite)-Number(a.favorite)).slice(0,12);
+ const future=ordered.filter(x=>!x.u.favorite).slice(0,6);
+ const makeRow=({u,f,best,cost,currency})=>`<div class="trait-rank-row"><button type="button" data-action="unitProfile" data-id="${h(u.id)}"><b>${u.favorite?'★ ':''}${h(u.name)}</b><small>${h(variantLabel(u.tier))} · ${h(unitTrait(u))}</small><small>Alvo: ${best?h(best.trait.label):'Em análise'} · ${best?.odds!=null?(best.odds*100).toFixed(2).replace('.',',')+'% por leitura inicial':'Chance desconhecida'} · ${cost==null?'Custo a confirmar':nf(cost)+' '+currencyLabel(currency)}</small></button>${badge(f.label,f.score>=3?'blue':'warning')}${btn('Analisar','unitProfile',{kind:'secondary',size:'small',attrs:`data-id="${h(u.id)}"`})}</div>`;
+ return `<div class="trait-guide-section"><h3>Prioridades na conta</h3><p class="mini-note">Ranking orientativo: favoritos, função e ganho potencial, chance e custo quando conhecidos. Reservas de Rebirth reduzem a prioridade, sem impedir decisões manuais. Não há trocas automáticas.</p>${ordered.slice(0,12).map(makeRow).join('')||'<p class="muted small">Cadastre habilidades para preencher o ranking.</p>'}</div><div class="trait-guide-section"><h3>Primeira habilidade · ${state.units.filter(u=>u.traitStatus==='none').length}</h3>${first.map(u=>`<div class="trait-rank-row"><b>${h(u.name)} · ${h(variantLabel(u.tier))}</b><small>${h(costDisplay(byName[u.name].rarity,0))}</small>${btn('Registrar','unitProfile',{kind:'secondary',size:'small',attrs:`data-id="${h(u.id)}"`})}</div>`).join('')||'<p class="muted small">Nenhuma unidade marcada como Sem habilidade.</p>'}</div><div class="trait-guide-section"><h3>Potencial futuro</h3>${future.map(makeRow).join('')||'<p class="muted small">Nenhuma oportunidade cadastrada fora dos favoritos.</p>'}</div>`;
+}
+function guidePage(){
+ const term=ui.guideSearch.trim().toLocaleLowerCase('pt-BR');const names=CAT.filter(d=>!term||d.name.toLocaleLowerCase('pt-BR').includes(term));
+ const total=state.units.length,scanned=state.units.filter(u=>u.traitStatus==='known').length;
+ const header=titlePage('GUIA DE HABILIDADES','Avaliações por unidade e melhores combinações','Habilidades v1.35.1 · tabela comunitária e correção de custos. Progressão preservada da v1.34.0.',`${btn('Saldo e orçamento','traitFinance',{kind:'secondary'})}`);
+ return header+`<div class="trait-overview"><div class="card card-pad"><span>Unidades</span><strong>${nf(total)}</strong></div><div class="card card-pad"><span>Habilidades registradas</span><strong>${nf(scanned)}</strong></div><div class="card card-pad"><span>Cristais Nova</span><strong>${financeValue('nova')}</strong></div><div class="card card-pad"><span>Créditos</span><strong>${financeValue('credits')}</strong></div></div><div class="card card-pad trait-guide-card"><h3>Recomendações de melhoria</h3><p class="mini-note">As recomendações não consomem recursos. Uma habilidade pode funcionar apenas como companheiro ou em um terminal específico.</p>${guideAccountRanking()}</div><section class="card card-pad trait-guide-card"><h3>Consultar habilidades dos 100 droids</h3><div class="field"><input class="input" data-input="guideSearch" type="search" placeholder="Pesquisar droid..." value="${h(ui.guideSearch)}" aria-label="Pesquisar droids no guia"></div><div class="trait-catalog">${names.slice(0,100).map(d=>`<button type="button" data-action="guideDroid" data-name="${h(d.name)}"><b>${h(d.name)}</b><small>${h(rarityLabel(d.rarity))} · ${h(roleLabel(d.role))}</small><span>Ver habilidades ›</span></button>`).join('')||'<p class="muted small">Droid não encontrado.</p>'}</div></section><p class="mini-note">Fontes: <a target="_blank" rel="noopener" href="${h(TRAITS.SOURCE)}">habilidades e probabilidades</a> · <a target="_blank" rel="noopener" href="${h(TRAITS.SOURCE_ROLES)}">efeitos dos droids</a>. Probabilidades de primeira leitura são estimativas comunitárias, e os custos em créditos após o patch v1.35.1 ainda precisam ser confirmados. <a target="_blank" rel="noopener" href="https://www.reddit.com/r/StarWarsDroidTycoon/comments/1xagnej/patch_notes_v1351/">Patch 1.35.1</a>.</p>`+footer();
+}
+function modalUnitPicker(name,tier,field,qty=1){const units=smartUnits(name,tier,unitsFor(name,tier).length);if(qty===1)return `<div class="field"><label>Qual unidade foi usada?</label>${smartUnitSelect(name,tier,field)}</div>`;return `<div class="field"><label>Selecione exatamente ${qty} unidades (Ctrl/tecla de seleção múltipla)</label><select class="select" name="${h(field)}" multiple size="${Math.min(7,Math.max(3,units.length))}">${units.map((u,i)=>`<option value="${h(u.id)}" ${i<qty?'selected':''}>${h(unitName(u))} · ${h(unitTrait(u))}${u.favorite?' ★':''}</option>`).join('')}</select></div>`}
+function selectedModalUnits(vals,field,qty,name,tier){const ids=vals.getAll(field).map(String);return selectedUnits(name,tier,qty,ids)}
+function ingredientPickers(parts){const hits=new Map();return `<div class="fusion-ingredient-units">${parts.map((p,i)=>{const key=nextId(p.name,p.tier),occ=hits.get(key)||0;hits.set(key,occ+1);return `<div class="field"><label>${h(p.name)} · ${variantLabel(p.tier)} — Unidade ${occ+1}</label>${smartUnitSelect(p.name,p.tier,'ingredient'+i,occ)}</div>`}).join('')}</div><p class="mini-note">Sugestões priorizam habilidades menos valiosas. Você pode alterar cada unidade antes de confirmar.</p>`}
+function ingredientSelection(vals,parts){const ids=parts.map((p,i)=>String(vals.get('ingredient'+i)||''));if(new Set(ids).size!==3)throw new Error('Selecione três unidades diferentes.');return parts.map((p,i)=>selectedUnits(p.name,p.tier,1,[ids[i]])[0]);}
+// ===== Fim do módulo de guia =====
+
+function render(){requireCountsCache=null;if(storageError){app.innerHTML=`<div class="card card-pad"><h2>Armazenamento indisponível</h2><p>Não foi possível abrir suas contas: ${h(storageError)}. Seus dados antigos não foram apagados. Não faça novos cadastros neste momento; abra o site no navegador habitual ou restaure um backup em uma instalação funcional.</p></div>`;return}app.innerHTML=ui.tab==='dashboard'?dashboard():ui.tab==='search'?search():ui.tab==='inventory'?inventory():ui.tab==='pathlist'?fullPathChecklist():ui.tab==='fusion'?fusionPage():ui.tab==='traits'?guidePage():settings();accountHeader();document.querySelectorAll('[data-tab]').forEach(el=>{el.classList.toggle('active',el.dataset.tab===ui.tab);if(el.dataset.tab===ui.tab)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});document.getElementById('top-breadcrumb').textContent={dashboard:'Meu caminho',search:'Consulta livre',inventory:'Minha Base',pathlist:'Lista do caminho',fusion:'Fusões especiais',traits:'Guia de Habilidades',settings:'Configurações'}[ui.tab];renderModal();renderDetail();}
 function restoreInputFocus(id,position){const q=document.querySelector(`[data-input="${id}"]`);if(q){q.focus();if(q.setSelectionRange&&position!=null)try{q.setSelectionRange(position,position)}catch(e){}}}
 function openModal(kind,props={}){ui.modal={kind,...props};renderModal()}
 function modalWrap(title,subtitle,content,buttons){return `<div class="modal-backdrop" data-action="closeBackdrop"><div class="modal" role="dialog" aria-modal="true" aria-label="${h(title)}"><div class="modal-header"><div><h3>${h(title)}</h3><small>${h(subtitle||'')}</small></div><button class="close-btn" type="button" aria-label="Fechar" data-action="close">×</button></div><form id="modal-form" data-form="${h(ui.modal.kind)}"><div class="modal-body">${content}</div><div class="modal-footer">${btn('Cancelar','close',{kind:'ghost'})}${buttons}</div></form></div></div>`}
@@ -760,27 +932,57 @@ function renderDetail(){const root=document.getElementById('detail-root');if(!ro
  const saleAdvisory=`<section class="drawer-section sale-advisory"><h3>↗ Pode vender?</h3><div class="advisory-status">${sellCount?badge(`Pode vender ${sellCount}`,'success'):badge(!state.path?'Sem caminho':'Guardar / sem excedentes','warning')}${reserved?badge(`${reserved} reservado(s) para fusão`,'blue'):''}</div>${evolutionAdvisory}<p class="mini-note">${saleExplanation}</p></section>`;
  const fusionAdvisory=`<section class="drawer-section fusion-advisory"><h3>⚗ Fusões especiais</h3>${fusionAlerts(name,selected)}</section>`;
  const chipsCalc=d.rarity==='Iconic'?'':`<section class="drawer-section"><h3>Chips para evoluir</h3><div class="field-inline"><div class="field"><label>De</label><select class="select variant-select" data-variant="${h(ui.chipFrom||'Default')}" data-input="chipFrom">${selects(T.map(value=>({value,label:variantLabel(value)})),ui.chipFrom||'Default')}</select></div><div class="field"><label>Para</label><select class="select variant-select" data-variant="${h(ui.chipTo||'Diamond')}" data-input="chipTo">${selects(T.map(value=>({value,label:variantLabel(value)})),ui.chipTo||'Diamond')}</select></div></div><p class="mini-note">Chips necessários: <b class="chip-highlight">${nf(chips(name,ui.chipFrom||'Default',ui.chipTo||'Diamond'))}</b></p></section>`;
- root.innerHTML=`<div class="detail-backdrop" data-action="closeDetailBackdrop"></div><aside class="detail-drawer" role="dialog" aria-modal="true" aria-label="Detalhes de ${h(name)}"><div class="drawer-handle"></div><div class="drawer-top"><div class="drawer-intro">${imageOf(name,true,selected||"Default")}<div><h2>${h(name)}</h2><div class="muted rarity-meta">${rarityTag(d.rarity)} <span class="role-label">${h(roleLabel(d.role))}</span></div></div></div><button type="button" class="drawer-close" data-action="closeDetail" aria-label="Fechar detalhes">×</button></div><div class="drawer-scroll">${state.path||tiers.length?`<section class="drawer-section"><h3>Na minha base</h3>${tiers.length?`<div class="drawer-variants">${tiers.map(([tier,qty])=>`<button type="button" class="variant-pill ${tier===selected?'on':''}" data-variant="${h(tier)}" data-action="detailTier" data-tier="${h(tier)}">${h(variantLabel(tier))} · ${qty}</button>`).join('')}</div>${variantActions}`:'<p class="muted small">Este droid não está cadastrado.</p>'}${btn('+ Consegui','add',{kind:'secondary',attrs:`data-name="${h(name)}"`})}</section>`:''}${saleAdvisory}${fusionAdvisory}<section class="drawer-section"><h3>Onde será necessário?</h3><div class="field"><label>Filtrar caminho</label><select class="select" data-input="pathFilter">${selects([{label:'Todos os caminhos',value:0},...Array.from({length:6},(_,i)=>({label:`Caminho ${i+1}`,value:i+1}))],ui.pathFilter)}</select></div><div class="detail-req-list">${requirementDetail}</div></section>${chipsCalc}</div></aside>`;
+ root.innerHTML=`<div class="detail-backdrop" data-action="closeDetailBackdrop"></div><aside class="detail-drawer" role="dialog" aria-modal="true" aria-label="Detalhes de ${h(name)}"><div class="drawer-handle"></div><div class="drawer-top"><div class="drawer-intro">${imageOf(name,true,selected||"Default")}<div><h2>${h(name)}</h2><div class="muted rarity-meta">${rarityTag(d.rarity)} <span class="role-label">${h(roleLabel(d.role))}</span></div></div></div><button type="button" class="drawer-close" data-action="closeDetail" aria-label="Fechar detalhes">×</button></div><div class="drawer-scroll">${state.path||tiers.length?`<section class="drawer-section"><h3>Na minha base</h3>${tiers.length?`<div class="drawer-variants">${tiers.map(([tier,qty])=>`<button type="button" class="variant-pill ${tier===selected?'on':''}" data-variant="${h(tier)}" data-action="detailTier" data-tier="${h(tier)}">${h(variantLabel(tier))} · ${qty}</button>`).join('')}</div>${variantActions}${selected?detailUnitsHtml(name,selected):''}`:'<p class="muted small">Este droid não está cadastrado.</p>'}${btn('+ Consegui','add',{kind:'secondary',attrs:`data-name="${h(name)}"`})}</section>`:''}${saleAdvisory}${fusionAdvisory}<section class="drawer-section"><h3>Onde será necessário?</h3><div class="field"><label>Filtrar caminho</label><select class="select" data-input="pathFilter">${selects([{label:'Todos os caminhos',value:0},...Array.from({length:6},(_,i)=>({label:`Caminho ${i+1}`,value:i+1}))],ui.pathFilter)}</select></div><div class="detail-req-list">${requirementDetail}</div></section>${chipsCalc}</div></aside>`;
  root.querySelector('.drawer-close')?.focus({preventScroll:true});
 }
 
 function renderModal(){const root=document.getElementById('modal-root');const m=ui.modal;if(!m){root.innerHTML='';return};let title='',subtitle='',content='',buttons='';
- switch(m.kind){case 'createAccount':{title='Adicionar conta';subtitle='Os dados desta conta serão independentes.';content='<div class="field"><label for="account-name">Nome da nova conta</label><input id="account-name" class="input" name="name" maxlength="40" placeholder="Ex.: Minha segunda conta" required></div><p class="mini-note">Você poderá mudar o nome depois.</p>';buttons='<button class="btn" type="submit">Criar e usar conta</button>';break}
+ switch(m.kind){
+ case 'traitFinance':{
+  title='Saldo e orçamento';subtitle='Por conta · atualização manual';
+  content=`<p class="mini-note">No patch v1.35.1, <strong>icônicos usam Cristais Nova</strong> e <strong>não icônicos usam créditos</strong>. Os valores atualizados em créditos ainda não foram confirmados: informe o custo real de cada tentativa. Aceita números e sufixos como 500M, 2B e 3T. Campos em branco significam saldo desconhecido.</p>${[['nova','Cristais Nova'],['credits','Créditos'],['budget','Orçamento Nova para tentativas']].map(([k,label])=>`<div class="field"><label>${label}</label><input class="input" type="text" inputmode="decimal" name="${k}" placeholder="Não informado (ex.: 3T)" value="${state.finance[k]??''}"></div>`).join('')}`;
+  buttons='<button class="btn" type="submit">Salvar saldo</button>';break;
+ }
+ case 'guideDroid':{
+  const d=byName[m.name];if(!d)return;title='Melhores habilidades: '+m.name;subtitle=`${rarityLabel(d.rarity)} · ${roleLabel(d.role)}`;
+  const funcs=TRAITS.functionsFor(m.name,d.role);
+  content=`<p class="mini-note">Funções naturais conhecidas:</p>${funcs.map(f=>`<p><b>${h(f.name)}</b><br><small>${h(f.detail)}</small></p>`).join('')}${recommendedTraits(m.name)}<hr><p class="mini-note">Unidades nesta conta: ${unitsFor(m.name).length}. Abra a Minha Base para avaliar cada habilidade recebida.</p>`;
+  buttons='<button class="btn" data-action="close" type="button">Fechar</button>';break;
+ }
+ case 'unitProfile':{
+  const u=unitById(m.id);if(!u){ui.modal=null;root.innerHTML='';return}const d=byName[u.name],grade=m.grade||u.grade||'Common';
+  title=`${u.name} · ${variantLabel(u.tier)}`;subtitle='Cadastro individual de habilidade';
+  content=`${guideSummary(u)}<div class="field"><label>Apelido (opcional)</label><input class="input" name="nickname" maxlength="60" placeholder="Ex.: C-3PO fabricação" value="${h(u.nickname)}"></div><label class="unit-favorite-check"><input type="checkbox" name="favorite" ${u.favorite?'checked':''}> ★ Marcar esta unidade como favorita</label>${traitFunctionsRow(u)}<div class="field"><label>Situação da habilidade</label><select class="select" name="traitStatus" data-input="traitStatus"><option value="unknown" ${u.traitStatus==='unknown'?'selected':''}>Não verificado</option><option value="none" ${u.traitStatus==='none'?'selected':''}>Sem habilidade (não escaneado)</option><option value="known" ${u.traitStatus==='known'?'selected':''}>Habilidade cadastrada</option></select></div><div class="field"><label>Classificação da habilidade</label><select class="select" name="grade" data-input="traitGrade">${TRAITS.tiers.map(g=>`<option value="${g}" ${g===grade?'selected':''}>${traitGradeLabel(g)}</option>`).join('')}</select></div><div class="field"><label>Habilidade recebida</label><select class="select" name="trait">${traitOptions(u.name,d.rarity,grade,u.trait)}</select><small>Selecione apenas combinações realmente possíveis no jogo. Para um nome ainda desconhecido, use a opção personalizada.</small></div><div class="field"><label>Nova habilidade personalizada (se selecionada)</label><input class="input" name="customName" maxlength="100" placeholder="Nome conforme aparece no jogo"></div><div class="field"><label>Bônus observado (opcional)</label><input class="input" name="bonus" maxlength="60" value="${h(u.bonus)}" placeholder="Ex.: +25%"></div>${recommendedTraits(u.name,u.uses)}<div class="trait-advice"><b>Vale trocar?</b><p>${h(unitAdvice(u))}</p></div><div class="unit-profile-actions">${btn('Registrar nova tentativa','unitRoll',{kind:'secondary',attrs:`data-id="${h(u.id)}"`})}${btn('Registrar teste','unitTest',{kind:'secondary',attrs:`data-id="${h(u.id)}"`})}</div>${u.history.length?`<div class="trait-history"><b>Histórico de tentativas</b>${u.history.slice(-20).reverse().map(e=>`<p class="mini-note">${h(e.date?.slice(0,10)||'')} · ${h(e.label||e.trait||'Habilidade alterada')} · ${e.cost==null?'Custo não informado':nf(e.cost)+' '+currencyLabel(e.currency||'nova')}</p>`).join('')}</div>`:''}${u.tests.length?`<div class="trait-history"><b>Testes pessoais</b>${u.tests.slice(-10).reverse().map(e=>`<p class="mini-note">${h(e.date?.slice(0,10)||'')} · ${h(e.function||'Função')} · ${h(e.before)} → ${h(e.after)}${e.note?' · '+h(e.note):''}</p>`).join('')}</div>`:''}`;
+  buttons='<button class="btn" type="submit">Salvar unidade</button>';break;
+ }
+ case 'unitRoll':{
+  const u=unitById(m.id);if(!u){ui.modal=null;root.innerHTML='';return}
+  const d=byName[u.name],grade=m.grade||'Common',guess=TRAITS.price(d.rarity,Math.max(0,u.rolls)),currency=TRAITS.currency(d.rarity),label=currencyLabel(currency);
+  title='Registrar tentativa realizada';subtitle=u.name+' · '+variantLabel(u.tier);
+  content=`<p>Registre apenas após escanear o droid <strong>dentro do jogo</strong>. A habilidade anterior será preservada no histórico.</p><div class="hint">Habilidade atual: ${h(unitTrait(u))}. Próxima leitura: ${h(costDisplay(d.rarity,u.rolls))}. ${currency==='credits'?'O novo preço em créditos precisa ser conferido diretamente no jogo.':'O valor de Nova é referência comunitária; confirme na tela do jogo.'}</div><div class="field"><label>Classificação recebida</label><select class="select" name="grade" data-input="traitGrade">${TRAITS.tiers.map(g=>`<option value="${g}" ${g===grade?'selected':''}>${traitGradeLabel(g)}</option>`).join('')}</select></div><div class="field"><label>Habilidade realmente sorteada</label><select class="select" name="trait" required>${traitOptions(u.name,d.rarity,grade)}</select></div><div class="field"><label>Se personalizada, informe o nome</label><input class="input" name="customName" maxlength="100"></div><div class="field"><label>Bônus observado (opcional)</label><input class="input" name="bonus" maxlength="60" placeholder="Ex.: +25%"></div><div class="field"><label>Custo real da tentativa (${label}, opcional)</label><input class="input" name="cost" type="text" inputmode="decimal" placeholder="${currency==='credits'?'Ex.: 3T ou 2500000':'Ex.: 200'}" value="${guess??''}"></div><p class="mini-note">Saldo de ${label} na conta: ${financeValue(currency)}. Se informar o custo, ele será descontado do saldo cadastrado. Caso deixe em branco, a tentativa será registrada sem desconto. Um aviso permitirá registrar mesmo com saldo insuficiente.</p>`;
+  buttons='<button class="btn" type="submit">Registrar habilidade e custo</button>';break;
+ }
+ case 'unitTest':{
+  const u=unitById(m.id);if(!u){ui.modal=null;root.innerHTML='';return}title='Registrar teste pessoal';subtitle=u.name+' · '+unitTrait(u);
+  content=`<p class="mini-note">Compare as mesmas condições de jogo. Um teste pessoal não comprova uma regra global.</p><div class="field"><label>Local ou função testada</label><input class="input" name="function" required maxlength="100" placeholder="Ex.: estação de créditos"></div><div class="field"><label>Resultado antes</label><input class="input" name="before" maxlength="70" required placeholder="Ex.: 1000 créditos/s"></div><div class="field"><label>Resultado depois</label><input class="input" name="after" maxlength="70" required placeholder="Ex.: 1200 créditos/s"></div><div class="field"><label>Duração e condições / outros bônus (opcional)</label><textarea class="input" name="note" maxlength="450" rows="3"></textarea></div>`;
+  buttons='<button class="btn" type="submit">Salvar teste</button>';break;
+ }
+ case 'createAccount' :{title='Adicionar conta';subtitle='Os dados desta conta serão independentes.';content='<div class="field"><label for="account-name">Nome da nova conta</label><input id="account-name" class="input" name="name" maxlength="40" placeholder="Ex.: Minha segunda conta" required></div><p class="mini-note">Você poderá mudar o nome depois.</p>';buttons='<button class="btn" type="submit">Criar e usar conta</button>';break}
  case 'renameAccount':{const a=accountsDb.accounts.find(a=>a.id===m.id);if(!a){ui.modal=null;root.innerHTML='';return}title='Renomear conta';subtitle=a.name;content=`<div class="field"><label>Nome da conta</label><input class="input" name="name" maxlength="40" value="${h(a.name)}" required></div>`;buttons='<button class="btn" type="submit">Salvar novo nome</button>';break}
  case 'deleteAccount':{const a=accountsDb.accounts.find(a=>a.id===m.id);if(!a){ui.modal=null;root.innerHTML='';return}title='Excluir conta';subtitle=a.name;content=`<p>Esta ação apagará o inventário, progresso, histórico e avisos desta conta neste navegador. As demais contas não serão apagadas.</p><div class="hint"><strong>Recomendamos exportar o backup de todas as contas antes.</strong> A exclusão não tem botão de desfazer.</div><div class="field" style="margin-top:15px"><label>Digite <strong>${h(a.name)}</strong> para confirmar</label><input class="input" name="confirmName" autocomplete="off" required></div>`;buttons='<button class="btn danger" type="submit">Excluir conta definitivamente</button>';break}
  case 'add':{const d=byName[m.name];title=`Cadastrar ${m.name}`;subtitle='Informe o que você conseguiu no jogo.';content=`<div class="field"><label>Variante</label>${tierSelect(validTier(m.name,m.tier)?m.tier:(d?.rarity==='Iconic'?'Única':'Default'),d?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade</label><input class="input" type="number" name="qty" min="1" max="100000" value="1" required></div>`;buttons=`<button class="btn" type="submit">Salvar droid</button>`;break}
  case 'edit':{title=`Editar ${m.name}`;subtitle=`Variante atual: ${variantLabel(m.tier)}`;content=`<div class="field"><label>Variante</label>${tierSelect(m.tier,byName[m.name]?.rarity==='Iconic','tier')}</div><div class="field"><label>Quantidade total</label><input class="input" type="number" min="1" max="100000" name="qty" value="${state.inventory[m.name]?.[m.tier]||0}" required></div><div class="hint">Editar corrige o cadastro. Não registra venda nem consumo de chips.</div>`;buttons=`${btn('Excluir cadastro','delete',{kind:'danger'})}<button class="btn" type="submit">Salvar alterações</button>`;break}
- case 'evolve':{const options=T.slice(rank(m.tier)+1);title=`Evoluí ${m.name}`;subtitle=`Variante atual: ${variantLabel(m.tier)}`;content=`<div class="field"><label>Variante alcançada</label><select class="select variant-select" data-variant="${h(ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0])}" name="tier" id="evolve-tier" data-input="evolveDestination">${selects(options.map(value=>({value,label:variantLabel(value)})),ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0])}</select></div><div class="field"><label>Quantidade evoluída (máx. ${state.inventory[m.name]?.[m.tier]||0})</label><input class="input" name="qty" min="1" max="${state.inventory[m.name]?.[m.tier]||0}" type="number" value="1" required></div><div class="hint">Chips para uma unidade: <strong class="chip-highlight" id="evolve-cost">${nf(chips(m.name,m.tier,ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0]))}</strong>. O aplicativo apenas registra a evolução feita no jogo.</div>`;buttons=`<button class="btn" type="submit">Confirmar evolução</button>`;break}
+ case 'evolve':{const options=T.slice(rank(m.tier)+1);title=`Evoluí ${m.name}`;subtitle=`Variante atual: ${variantLabel(m.tier)}`;content=`<div class="field"><label>Variante alcançada</label><select class="select variant-select" data-variant="${h(ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0])}" name="tier" id="evolve-tier" data-input="evolveDestination">${selects(options.map(value=>({value,label:variantLabel(value)})),ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0])}</select></div><div class="field"><label>Quantidade evoluída (máx. ${state.inventory[m.name]?.[m.tier]||0})</label><input class="input" name="qty" min="1" max="1" type="number" value="1" required></div><div class="hint">Chips para uma unidade: <strong class="chip-highlight" id="evolve-cost">${nf(chips(m.name,m.tier,ui.evolveDestination&&options.includes(ui.evolveDestination)?ui.evolveDestination:options[0]))}</strong>. O aplicativo apenas registra a evolução feita no jogo.</div>${modalUnitPicker(m.name,m.tier,'unitIds',1)}<p class="mini-note">Para evoluir várias unidades, faça uma por vez, escolhendo qual será usada. A habilidade do resultado ficará pendente.</p>`;buttons=`<button class="btn" type="submit">Confirmar evolução</button>`;break}
  case 'removeOwned':{
   const current=state.inventory[m.name]?.[m.tier]||0;
   if(!current){ui.modal=null;root.innerHTML='';return}
   const reserved=fusionPlanNeeds()[nextId(m.name,m.tier)]||0;
   const required=calcRowCounts(m.name,m.tier).keep;
   title=`Não possuo mais: ${m.name}`;subtitle=`${variantLabel(m.tier)} · ${current} unidade(s) cadastrada(s)`;
-  content=`<p>Retire do cadastro os droids que <strong>já não estão na sua base</strong>, mesmo que ainda sejam necessários no caminho.</p><div class="field"><label>Quantas unidades quer retirar?</label><input class="input" name="qty" min="1" max="${current}" type="number" value="${current}" required></div><div class="hint">Esta ação atualiza apenas o inventário de <strong>${h(currentAccount().name)}</strong>. Não registra uma venda nem apaga os requisitos do caminho. Você poderá desfazer logo depois de confirmar.</div>${required?`<div class="hint removal-warning">⚠ Este droid pode ser necessário no seu caminho. Ao retirá-lo, ele voltará a aparecer como pendência quando aplicável.</div>`:''}${reserved?`<div class="hint removal-warning">⚗ Existem <strong>${reserved}</strong> unidade(s) reservada(s) para fusão desta variante. As reservas que ficarem sem ingredientes serão canceladas automaticamente.</div>`:''}`;
+  content=`<p>Retire do cadastro os droids que <strong>já não estão na sua base</strong>, mesmo que ainda sejam necessários no caminho.</p><div class="field"><label>Quantas unidades quer retirar?</label><input class="input" name="qty" min="1" max="${unitsFor(m.name,m.tier).some(u=>u.traitStatus==='known'||u.favorite)?1:current}" type="number" value="${unitsFor(m.name,m.tier).some(u=>u.traitStatus==='known'||u.favorite)?1:current}" required></div>${unitsFor(m.name,m.tier).some(u=>u.traitStatus==='known'||u.favorite)?modalUnitPicker(m.name,m.tier,'unitId'): ''}<div class="hint">Esta ação atualiza apenas o inventário de <strong>${h(currentAccount().name)}</strong>. Não registra uma venda nem apaga os requisitos do caminho. Você poderá desfazer logo depois de confirmar.</div>${required?`<div class="hint removal-warning">⚠ Este droid pode ser necessário no seu caminho. Ao retirá-lo, ele voltará a aparecer como pendência quando aplicável.</div>`:''}${reserved?`<div class="hint removal-warning">⚗ Existem <strong>${reserved}</strong> unidade(s) reservada(s) para fusão desta variante. As reservas que ficarem sem ingredientes serão canceladas automaticamente.</div>`:''}`;
   buttons='<button class="btn danger" type="submit">Confirmar retirada</button>';break;
  }
- case 'sale':{title=`Registrar venda: ${m.name}`;subtitle=`${variantLabel(m.tier)} · ${m.max} unidade(s) liberada(s)`;content=`<div class="field"><label>Quantidade vendida</label><input class="input" name="qty" min="1" max="${m.max}" type="number" value="1" required></div><div class="hint"><strong>Importante:</strong> “Pode Vender” é uma indicação de progressão. A decisão de vender pode afetar renda, coleção ou fusão.</div>`;buttons=`<button class="btn" type="submit">Registrar venda</button>`;break}
+ case 'sale':{title=`Registrar venda: ${m.name}`;subtitle=`${variantLabel(m.tier)} · ${m.max} unidade(s) liberada(s)`;content=`<div class="field"><label>Quantidade vendida</label><input class="input" name="qty" min="1" max="${unitsFor(m.name,m.tier).some(u=>u.traitStatus==='known'||u.favorite)?1:m.max}" type="number" value="1" required></div>${modalUnitPicker(m.name,m.tier,'unitId',1)}<div class="hint"><strong>Importante:</strong> “Pode Vender” é uma indicação de progressão. A decisão de vender pode afetar renda, coleção ou fusão.</div>`;buttons=`<button class="btn" type="submit">Registrar venda</button>`;break}
  case 'cycle':{title='Corrigir meu ciclo';subtitle=`Caminho ${state.path}`;content=`<div class="field"><label>Ciclo em que está atualmente</label><select class="select" name="cycle">${selects(Array.from({length:40},(_,i)=>({label:`Ciclo ${i+1}`,value:i+1})),state.cycle)}</select></div><div class="hint">O inventário será preservado e as recomendações recalculadas. Ciclos pulados não serão marcados automaticamente como concluídos.</div>`;buttons=`<button class="btn" type="submit">Confirmar novo ciclo</button>`;break}
  case 'advance':{const bad=stageBuckets();title=state.cycle===40?'Concluir o caminho':'Avançar de ciclo';subtitle=`Caminho ${state.path} · Ciclo ${state.cycle}`;content=`<p>${(bad.confirmed.length+bad.unknown.length)?`Ainda existem <strong>${(bad.confirmed.length+bad.unknown.length)} pendência(s)</strong> no cadastro. Você pode avançar se já concluiu a etapa dentro do jogo.`:'Todos os requisitos constam como atendidos no cadastro.'}</p><div class="hint">Seus droids serão preservados. Confirme somente se concluiu esse ciclo no jogo.</div>`;buttons=`<button class="btn" type="submit">${state.cycle===40?'Registrar conclusão':'Confirmar avanço'}</button>`;break}
  case 'changePath':{title='Trocar de caminho';subtitle='Esta ação reiniciará o inventário ativo.';content=`<div class="field"><label>Novo caminho</label><select class="select" name="path">${selects(Array.from({length:6},(_,i)=>({value:i+1,label:`Caminho ${i+1}`})).filter(a=>a.value!==state.path),state.path===1?2:1)}</select></div><div class="hint"><strong>Atenção:</strong> o inventário atual será arquivado em uma cópia de segurança e zerado no novo caminho. O histórico resumido será mantido.</div>`;buttons=`<button class="btn danger" type="submit">Confirmar mudança</button>`;break}
@@ -874,7 +1076,16 @@ function clearBrokenFusionReservations(){
  });
  return released;
 }
-function mutateInventory(name,tier,delta){if(!validName(name)||!validTier(name,tier))return;const tiers=(state.inventory[name]??={});tiers[tier]=Math.max(0,(tiers[tier]||0)+delta);if(!tiers[tier])delete tiers[tier];if(!Object.keys(tiers).length)delete state.inventory[name];if(delta>0)delete state.absent[name]}
+function mutateInventory(name,tier,delta,ids=null,reason='alteração do inventário'){
+ if(!validName(name)||!validTier(name,tier)||!Number.isSafeInteger(delta))throw new Error('Inventário inválido.');
+ const old=state.inventory[name]?.[tier]||0;
+ if(old+delta<0||old+delta>100000)throw new Error('Quantidade indisponível para movimentação.');
+ if(delta<0)removeUnits(name,tier,-delta,ids,reason);
+ if(delta>0)for(let i=0;i<delta;i++)state.units.push(bareUnit(name,tier));
+ const tiers=(state.inventory[name]??={});tiers[tier]=old+delta;
+ if(!tiers[tier])delete tiers[tier];if(!Object.keys(tiers).length)delete state.inventory[name];
+ if(delta>0)delete state.absent[name];
+}
 function nInt(value,min,max){const x=Number(value);return Number.isSafeInteger(x)&&x>=min&&x<=max?x:null}
 function downloadBackup(payload,filename,message){
  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
@@ -886,19 +1097,89 @@ function exportBackup(onlyCurrent=false){
  const stamp=date+'_'+String(now.getHours()).padStart(2,'0')+'-'+String(now.getMinutes()).padStart(2,'0');
  const selected=onlyCurrent?[currentAccount()]:accountsDb.accounts;
  const name=onlyCurrent?backupFilenamePart(currentAccount().name):'todas-contas';
- const payload={schema:2,activeId:onlyCurrent?currentAccount().id:accountsDb.activeId,accounts:selected,exportedAt:now.toISOString(),app:'Droid Tycoon'};
+ const payload={schema:2,activeId:onlyCurrent?currentAccount().id:accountsDb.activeId,accounts:selected,customTraits:accountsDb.customTraits||[],exportedAt:now.toISOString(),app:'Droid Tycoon'};
  downloadBackup(payload,`droid-tycoon-${name}-${stamp}.json`,onlyCurrent?`Backup de ${currentAccount().name} exportado.`:'Backup completo exportado com os nomes das contas.');
 }
 function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData(form);const qty=nInt(vals.get('qty'),1,100000);let text='';switch(m.kind){
+ case 'traitFinance':{
+  const data={};for(const k of ['nova','credits','budget']){
+   const v=String(vals.get(k)||'').trim();data[k]=parseGameMoney(v);
+   if(v&&(!Number.isFinite(data[k])||data[k]<0))return notify('Informe um saldo válido, como 200, 2B ou 3T.');
+  }
+  save(()=>{state.finance={...data}},'Saldo da conta atualizado.');break;
+ }
+ case 'unitProfile':{
+  const u=unitById(m.id);if(!u)return notify('Unidade não encontrada nesta conta.');
+  const status=String(vals.get('traitStatus')||'unknown'),grade=String(vals.get('grade')||'Common'),oldTrait=u.trait;
+  if(!['unknown','none','known'].includes(status))return notify('Estado inválido.');
+  let trait=String(vals.get('trait')||'');
+  if(status==='known'){
+   if(!TRAITS.tiers.includes(grade))return notify('Classificação inválida.');
+   if(trait==='__custom__'){
+    const name=String(vals.get('customName')||'').trim();if(!name||name.length>100)return notify('Digite o nome da habilidade personalizada.');
+    const exist=(accountsDb.customTraits||[]).find(t=>t.name.toLowerCase()===name.toLowerCase());
+    trait=exist?.id||('custom:'+newId());if(!exist)accountsDb.customTraits.push({id:trait,name});
+   }
+   if(!trait)return notify('Selecione a habilidade realmente recebida.');
+   if(TRAITS.byId[trait]&&!TRAITS.eligible(u.name,byName[u.name].rarity,trait,grade))return notify('Esta combinação não consta do sorteio permitido para este droid. Confira a classificação.');
+  }
+  const uses=vals.getAll('uses').filter(x=>TRAITS.functionsFor(u.name,byName[u.name].role).some(f=>f.id===x));
+  save(()=>{u.nickname=String(vals.get('nickname')||'').trim().slice(0,60);u.favorite=vals.has('favorite');u.uses=uses;
+   u.traitStatus=status;u.trait=status==='known'?trait:'';u.grade=status==='known'?grade:'';u.bonus=status==='known'?String(vals.get('bonus')||'').slice(0,60):'';
+   if(status==='known'&&oldTrait!==trait)u.history.push({date:new Date().toISOString(),label:'Cadastro/correção manual: '+unitTrait(u),cost:0});
+   u.history=u.history.slice(-80);
+  },'Informações desta unidade atualizadas.');break;
+ }
+ case 'unitRoll':{
+  const u=unitById(m.id);if(!u)return notify('Unidade não encontrada.');
+  const grade=String(vals.get('grade')||''),costValue=String(vals.get('cost')||'').trim(),cost=parseGameMoney(costValue);let trait=String(vals.get('trait')||'');
+  if(!TRAITS.tiers.includes(grade)||costValue&&(!Number.isFinite(cost)||cost<0))return notify('Classificação ou custo inválido.');
+  if(trait==='__custom__'){
+   const name=String(vals.get('customName')||'').trim();if(!name||name.length>100)return notify('Informe o nome da habilidade personalizada.');
+   const old=(accountsDb.customTraits||[]).find(t=>t.name.toLowerCase()===name.toLowerCase());
+   trait=old?.id||('custom:'+newId());if(!old)accountsDb.customTraits.push({id:trait,name});
+  }
+  if(!trait||TRAITS.byId[trait]&&!TRAITS.eligible(u.name,byName[u.name].rarity,trait,grade))return notify('Habilidade não permitida nesta classificação.');
+  const currency=TRAITS.currency(byName[u.name].rarity),label=currencyLabel(currency),balance=state.finance[currency];
+  if(cost!=null&&balance!=null&&balance<cost&&!window.confirm(`Seu saldo informado (${nf(balance)} ${label}) é menor que o custo (${nf(cost)} ${label}). Registrar a tentativa e zerar o saldo estimado? Depois você poderá corrigir o valor.`))return;
+  save(()=>{
+   u.history.push({date:new Date().toISOString(),from:u.traitStatus==='known'?u.trait:'Não verificado',trait,grade,label:'Tentativa: '+(TRAITS.byId[trait]?.label||accountsDb.customTraits.find(x=>x.id===trait)?.name||trait),cost,currency});u.history=u.history.slice(-80);
+   u.rolls++;u.traitStatus='known';u.trait=trait;u.grade=grade;u.bonus=String(vals.get('bonus')||'').slice(0,60);
+   if(cost!=null&&state.finance[currency]!=null)state.finance[currency]=Math.max(0,state.finance[currency]-cost);
+   state.financeLedger.push({date:new Date().toISOString(),unitId:u.id,spent:cost,currency,shortage:cost!=null&&balance!=null?Math.max(0,cost-balance):null});state.financeLedger=state.financeLedger.slice(-200);
+   opRecord('tentativa',[u],{cost,currency});
+  },'Nova habilidade e custo registrados.');break;
+ }
+ case 'unitTest':{
+  const u=unitById(m.id);if(!u)return notify('Unidade não encontrada.');
+  const fn=String(vals.get('function')||'').trim().slice(0,100),before=String(vals.get('before')||'').trim().slice(0,70),after=String(vals.get('after')||'').trim().slice(0,70);
+  if(!fn||!before||!after)return notify('Informe a função e os resultados antes e depois.');
+  save(()=>{u.tests.push({date:new Date().toISOString(),function:fn,before,after,note:String(vals.get('note')||'').slice(0,450)});u.tests=u.tests.slice(-50)},'Teste pessoal registrado.');break;
+ }
+ case 'guideDroid':ui.modal=null;render();return;
+
  case 'add':{const tier=String(vals.get('tier'));if(!qty||!validTier(m.name,tier))return notify('Informe uma variante e quantidade válidas.');save(()=>mutateInventory(m.name,tier,qty),`${m.name} cadastrado.`);break}
- case 'edit':{const tier=String(vals.get('tier'));if(!qty||!validTier(m.name,tier))return notify('Informe dados válidos.');save(()=>{const old=state.inventory[m.name]?.[m.tier]||0;mutateInventory(m.name,m.tier,-old);mutateInventory(m.name,tier,qty)},'Cadastro atualizado.');break}
- case 'evolve':{const tier=String(vals.get('tier'));const current=state.inventory[m.name]?.[m.tier]||0;if(!qty||qty>current||!T.includes(tier)||rank(tier)<=rank(m.tier))return notify('Verifique a variante de destino e a quantidade.');save(()=>{mutateInventory(m.name,m.tier,-qty);mutateInventory(m.name,tier,qty)},`Evolução registrada: ${m.name} → ${variantLabel(tier)}.`);break}
+ case 'edit':{
+  const tier=String(vals.get('tier'));if(!qty||!validTier(m.name,tier))return notify('Informe dados válidos.');
+  const old=state.inventory[m.name]?.[m.tier]||0;
+  if(old&&tier!==m.tier&&unitsFor(m.name,m.tier).some(u=>u.traitStatus==='known'||u.favorite)&&!window.confirm('Mudar a variante pelo modo Editar cria novas unidades com habilidades pendentes. Prefira o botão Evoluí para escolher a unidade. Continuar?'))return;
+  save(()=>{if(tier===m.tier)mutateInventory(m.name,tier,qty-old);else{mutateInventory(m.name,m.tier,-old);mutateInventory(m.name,tier,qty)}},'Cadastro atualizado.');break;
+ }
+ case 'evolve':{
+  const tier=String(vals.get('tier')),current=state.inventory[m.name]?.[m.tier]||0;
+  if(!qty||qty!==1||qty>current||!T.includes(tier)||rank(tier)<=rank(m.tier))return notify('Verifique a variante e evolua uma unidade por vez.');
+  let chosen;try{chosen=selectedModalUnits(vals,'unitIds',1,m.name,m.tier)}catch(e){return notify(e.message)}
+  if(!ensureValuableConsent(chosen,'evoluir e redefinir a habilidade como pendente'))return;
+  save(()=>{mutateInventory(m.name,m.tier,-1,chosen.map(u=>u.id),'evolução');mutateInventory(m.name,tier,1);opRecord('evolução',chosen,{result:state.units[state.units.length-1]?.id})},`Evolução registrada: ${m.name} → ${variantLabel(tier)}. Habilidade pendente.`);break;
+ }
  case 'removeOwned':{
   const current=state.inventory[m.name]?.[m.tier]||0;
   if(!qty||!current||qty>current)return notify('Confira a quantidade: ela não pode ultrapassar o que você tem cadastrado.');
+  let chosen;try{chosen=selectedUnits(m.name,m.tier,qty,vals.get('unitId')?[String(vals.get('unitId'))]:null)}catch(err){return notify(err.message)}
+  if(!ensureValuableConsent(chosen,'retirar do inventário'))return;
   let released=[];
   save(()=>{
-   mutateInventory(m.name,m.tier,-qty);
+   mutateInventory(m.name,m.tier,-qty,chosen.map(u=>u.id),'retirada manual');opRecord('retirada',chosen);
    released=clearBrokenFusionReservations();
    if(!anyOwned(m.name))state.absent[m.name]=true;
    state.removals??=[];
@@ -908,10 +1189,19 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
   if(!anyOwned(m.name)&&ui.tab==='inventory'){ui.detail='';renderDetail()}
   break;
  }
- case 'sale':{const current=state.inventory[m.name]?.[m.tier]||0;const allowed=requireCounts().saleEntries.find(e=>e.name===m.name&&e.tier===m.tier)?.qty||0;if(!qty||qty>current||qty>allowed)return notify('A quantidade excede o que está liberado para venda.');save(()=>{mutateInventory(m.name,m.tier,-qty);state.sales.push({name:m.name,tier:m.tier,qty,date:new Date().toISOString()});state.sales=state.sales.slice(-30)},'Venda registrada. Você pode desfazer.');break}
+ case 'sale':{
+  const current=state.inventory[m.name]?.[m.tier]||0,allowed=requireCounts().saleEntries.find(e=>e.name===m.name&&e.tier===m.tier)?.qty||0;
+  if(!qty||qty>current||qty>allowed)return notify('A quantidade excede o que está liberado para venda.');
+  const specialized=unitsFor(m.name,m.tier).some(u=>u.traitStatus==='known'||u.favorite);
+  if(specialized&&qty!==1)return notify('Para proteger habilidades, registre uma unidade por vez.');
+  const ids=qty===1?[String(vals.get('unitId')||'')]:null;
+  let chosen;try{chosen=selectedUnits(m.name,m.tier,qty,ids)}catch(e){return notify(e.message)}
+  if(!ensureValuableConsent(chosen,'vender'))return;
+  save(()=>{mutateInventory(m.name,m.tier,-qty,chosen.map(u=>u.id),'venda');opRecord('venda',chosen);state.sales.push({name:m.name,tier:m.tier,qty,date:new Date().toISOString()});state.sales=state.sales.slice(-30)},'Venda registrada. Você pode desfazer.');break;
+ }
  case 'cycle':{const cycle=nInt(vals.get('cycle'),1,40);if(!cycle)return;save(()=>{state.cycle=cycle},`Ciclo atualizado para ${cycle}.`);break}
  case 'advance':{const final=state.cycle===40;if(final&&state.completed.some(x=>x.path===state.path&&x.cycle===40))return;save(()=>{state.completed.push({path:state.path,cycle:state.cycle});if(final){state.history.push({path:state.path,cycle:40,date:new Date().toLocaleDateString('pt-BR'),finished:true,inventory:JSON.parse(JSON.stringify(state.inventory))});state.history=state.history.slice(-30)}else state.cycle++},final?'Caminho concluído!':'Ciclo atualizado.');break}
- case 'changePath':{const p=nInt(vals.get('path'),1,6);if(!p||p===state.path)return;try{localStorage.setItem(RESTORE,JSON.stringify(state))}catch(e){};save(()=>{state.history.push({path:state.path,cycle:state.cycle,date:new Date().toLocaleDateString('pt-BR'),inventory:JSON.parse(JSON.stringify(state.inventory))});state.path=p;state.cycle=1;state.inventory={};state.absent={};state.completed=[];state.sales=[];state.fusions.plans={};state.fusions.genericPlans=[];state.history=state.history.slice(-30)},`Caminho ${p} iniciado. Inventário reiniciado.`);ui.open=new Set(['pending']);break}
+ case 'changePath':{const p=nInt(vals.get('path'),1,6);if(!p||p===state.path)return;try{localStorage.setItem(RESTORE,JSON.stringify(state))}catch(e){};save(()=>{for(const u of state.units)archiveUnit(u,'mudança de caminho');state.history.push({path:state.path,cycle:state.cycle,date:new Date().toLocaleDateString('pt-BR'),inventory:JSON.parse(JSON.stringify(state.inventory))});state.path=p;state.cycle=1;state.inventory={};state.units=[];state.absent={};state.completed=[];state.sales=[];state.fusions.plans={};state.fusions.genericPlans=[];state.history=state.history.slice(-30)},`Caminho ${p} iniciado. Inventário reiniciado.`);ui.open=new Set(['pending']);break}
  case 'createAccount':{
   const name=validAccountName(vals.get('name'));if(!name||!nameAvailable(name))return notify('Use um nome diferente, com até 40 caracteres.');
   if(!writeAccounts())return;
@@ -953,7 +1243,7 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
   }
   if(!writeAccounts()||!saveUndoSnapshot())return;
   const previous=accountsDb;
-  try{accountsDb=mergeBackupAccounts(incoming,m.format==='legacy'||(m.format==='multi'&&incoming.length===1))}
+  try{accountsDb=mergeBackupAccounts(incoming,m.format==='legacy'||(m.format==='multi'&&incoming.length===1));if(m.format==='multi')for(const t of (m.preview.customTraits||[]))if(!accountsDb.customTraits.some(x=>x.id===t.id||x.name.toLowerCase()===t.name.toLowerCase()))accountsDb.customTraits.push(t)}
   catch(err){accountsDb=previous;return notify('Não foi possível importar: '+err.message)}
   if(!saveAccountsBlob()){accountsDb=previous;resetAccountView();return}
   resetAccountView();ui.tab='settings';
@@ -966,9 +1256,11 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
   if(!result||!planIsFree(m.parts,m.planId?'g:'+m.planId:''))return notify('Ingredientes indisponíveis ou já reservados.');
   const name=result.random?String(vals.get('resultName')||''):result.name;
   if(!validName(name)||!validTier(name,result.tier)||(result.random&&(byName[name].rarity!==result.rarity||!!FUSION_BY_ID[name])))return notify('Selecione o droid realmente recebido.');
+  let chosen;try{chosen=ingredientSelection(vals,m.parts)}catch(err){return notify(err.message)}
+  if(!ensureValuableConsent(chosen,'usar na fusão'))return;
   save(()=>{
-   for(const part of m.parts)mutateInventory(part.name,part.tier,-1);
-   mutateInventory(name,result.tier,1);
+   for(const u of chosen)mutateInventory(u.name,u.tier,-1,[u.id],'fusão');
+   mutateInventory(name,result.tier,1);opRecord('fusão',chosen,{result:state.units[state.units.length-1]?.id});
    if(m.planId)state.fusions.genericPlans=state.fusions.genericPlans.filter(p=>p.id!==m.planId);
    state.fusions.genericHistory.push({kind:m.fusionKind,parts:m.parts.map(p=>({...p})),result:name,tier:result.tier,date:new Date().toISOString()});
    state.fusions.genericHistory=state.fusions.genericHistory.slice(-120);
@@ -978,19 +1270,27 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
  case 'fusionConfirm':{
   const recipe=FUSION_BY_ID[m.id];if(!recipe||!Array.isArray(m.tiers)||m.tiers.length!==3)return notify('Receita inválida.');
   const status=fusionAvailability(recipe,m.tiers);if(!status.ready)return notify('Faltam ingredientes ou alguma unidade está reservada em outra fusão.');
+  let chosen;try{chosen=ingredientSelection(vals,recipe.parts.map((name,i)=>({name,tier:m.tiers[i]})))}catch(err){return notify(err.message)}
+  if(!ensureValuableConsent(chosen,'usar na fusão'))return;
   save(()=>{
-   recipe.parts.forEach((name,i)=>mutateInventory(name,m.tiers[i],-1));
-   mutateInventory(recipe.id,status.tier,1);
+   chosen.forEach(u=>mutateInventory(u.name,u.tier,-1,[u.id],'fusão'));
+   mutateInventory(recipe.id,status.tier,1);opRecord('fusão especial',chosen,{result:state.units[state.units.length-1]?.id});
    delete state.fusions.plans[recipe.id];
    state.fusions.history.push({id:recipe.id,tier:status.tier,tiers:[...m.tiers],date:new Date().toISOString()});
    state.fusions.history=state.fusions.history.slice(-120);
   },`Fusão ${recipe.id} · ${variantLabel(status.tier)} registrada. Você pode desfazer.`);
   delete ui.fusionDraft[recipe.id];break;
  }
- case 'delete':{save(()=>{const n=state.inventory[m.name]?.[m.tier]||0;mutateInventory(m.name,m.tier,-n)},'Cadastro excluído.');break}
+ case 'delete':{const candidates=unitsFor(m.name,m.tier);if(!ensureValuableConsent(candidates,'excluir estas unidades'))return;save(()=>{const n=state.inventory[m.name]?.[m.tier]||0;mutateInventory(m.name,m.tier,-n)},'Cadastro excluído.');break}
  }ui.modal=null;render();}
 function handleAction(button){const a=button.dataset.action,n=button.dataset.name,t=button.dataset.tier;
  switch(a){
+ case 'traitFinance':openModal('traitFinance');break;
+ case 'guideDroid':openModal('guideDroid',{name:n});break;
+ case 'unitProfile':ui.detail='';renderDetail();openModal('unitProfile',{id:button.dataset.id});break;
+ case 'unitRoll':openModal('unitRoll',{id:button.dataset.id});break;
+ case 'unitTest':openModal('unitTest',{id:button.dataset.id});break;
+ case 'favoriteUnit':{const u=unitById(button.dataset.id);if(u)save(()=>{u.favorite=!u.favorite},u.favorite?'Favorito removido.':'Favorito atualizado.');break}
  case 'createAccount':openModal('createAccount');break;
  case 'renameAccount':openModal('renameAccount',{id:button.dataset.id});break;
  case 'deleteAccount':openModal('deleteAccount',{id:button.dataset.id});break;
@@ -1065,9 +1365,10 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
  case 'removeOwned':{if(!n||!t||!(state.inventory[n]?.[t]>0))return notify('Este droid não está no inventário desta conta.');openModal('removeOwned',{name:n,tier:t});break;}
  case 'sellOne':{
   if(ui.tab!=='inventory'||!validName(n)||!validTier(n,t)||!(state.inventory[n]?.[t]>0))return notify('Esse droid não está mais na sua base.');
+  if(unitsFor(n,t).some(u=>u.traitStatus==='known'||u.favorite)){openModal('sale',{name:n,tier:t,max:1});return}
   let released=[];
   save(()=>{
-   mutateInventory(n,t,-1);
+   const chosen=smartUnits(n,t,1);mutateInventory(n,t,-1,chosen.map(u=>u.id),'venda rápida');opRecord('venda rápida',chosen);
    released=clearBrokenFusionReservations();
    if(!anyOwned(n))state.absent[n]=true;
    state.sales.push({name:n,tier:t,qty:1,date:new Date().toISOString()});
@@ -1114,6 +1415,7 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
    break;
  }
  case 'source':window.open(DB.source,'_blank','noopener,noreferrer');break;
+ case 'undoOperation':undoLastOperation();break;
  case 'undoRestore':restoreAccountsSnapshot();break;
  case 'prevBrowse':ui.browseCycle=Math.max(1,ui.browseCycle-1);render();break;case 'nextBrowse':ui.browseCycle=Math.min(40,ui.browseCycle+1);render();break;
  }
@@ -1123,12 +1425,13 @@ document.addEventListener('submit',e=>{if(e.target.id==='modal-form'){e.preventD
 document.addEventListener('input',e=>{const input=e.target.dataset.input;if(!input)return;
  if(input==='search'){ui.search=e.target.value;refreshSearchResults();return;}
  if(input==='inventorySearch'){ui.inventorySearch=e.target.value;refreshBaseResults();return;}
+ if(input==='guideSearch'){ui.guideSearch=e.target.value;const position=e.target.selectionStart;render();restoreInputFocus('guideSearch',position);return;}
  if(input==='catalogSearch'||input==='pathSearch'||input==='fusionSearch'){ui[input]=e.target.value;const pos=e.target.selectionStart;render();restoreInputFocus(input,pos)}
  if(input==='pathQty'){const n=e.target.dataset.name;ui.pathDraft[n]={...pathDraft(n),qty:e.target.value}}
  if(input==='batchQty'){const name=e.target.dataset.name;const qty=Number(e.target.value);if(ui.batch[name]&&qty>=1)ui.batch[name].qty=qty}
  });
 document.addEventListener('change',e=>{if(e.target.matches?.('select.variant-select'))e.target.dataset.variant=e.target.value;const inp=e.target.dataset.input;if(!inp)return;const value=e.target.value;
- switch(inp){case 'activeAccount':activateAccount(value);break;case 'setupCycle':ui.setupCycle=Number(value);break;case 'setupRegister':ui.setupRegister=value==='yes';break;case 'browsePath':ui.browsePath=Number(value);render();break;case 'browseCycle':ui.browseCycle=Number(value);render();break;case 'pathFilter':ui.pathFilter=Number(value);if(ui.detail)renderDetail();else render();break;
+ switch(inp){case 'traitGrade':if(ui.modal&&['unitProfile','unitRoll'].includes(ui.modal.kind)){ui.modal.grade=value;const u=unitById(ui.modal.id),select=e.target.closest('form')?.querySelector('select[name=trait]');if(u&&select)select.innerHTML=traitOptions(u.name,byName[u.name].rarity,value,'',true)}break;case 'activeAccount':activateAccount(value);break;case 'setupCycle':ui.setupCycle=Number(value);break;case 'setupRegister':ui.setupRegister=value==='yes';break;case 'browsePath':ui.browsePath=Number(value);render();break;case 'browseCycle':ui.browseCycle=Number(value);render();break;case 'pathFilter':ui.pathFilter=Number(value);if(ui.detail)renderDetail();else render();break;
  case 'chipFrom':ui.chipFrom=value;if(ui.detail)renderDetail();else render();break;case 'chipTo':ui.chipTo=value;if(ui.detail)renderDetail();else render();break;
  case 'catalogRarity':ui.catalogRarity=value;render();break;
   case 'fusionTier':{const r=FUSION_BY_ID[e.target.dataset.id],i=Number(e.target.dataset.index);if(!r||!Number.isInteger(i)||i<0||i>2||!T.includes(value))break;ui.fusionDraft[r.id]=[...fusionTiers(r)];ui.fusionDraft[r.id][i]=value;render();break;}
@@ -1167,5 +1470,9 @@ if(!DB||CAT.length!==100||R.length!==720)alert('Erro: base de droids incompleta.
   },
   toast(message){notify(message)}
  });
+ // Materializa os identificadores individuais no primeiro carregamento, depois de salvar a cópia v26.
+ if(!storageError && localStorage.getItem(PRE_TRAITS_BACKUP)){
+  try{const stored=JSON.parse(localStorage.getItem(ACCOUNTS_KEY)||'{}');if(stored.accounts?.some(a=>!Array.isArray(a.data?.units)))writeAccounts()}catch(e){notify('Confira o backup da migração antes de continuar.');}
+ }
  render();
 })();

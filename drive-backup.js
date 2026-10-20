@@ -59,6 +59,10 @@
    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw));
    out[row.id]=Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
   }
+  // O catálogo compartilhado de habilidades personalizadas também faz parte do backup.
+  const custom=JSON.stringify(payload.customTraits||[]);
+  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(custom));
+  out['@habilidades']=Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('');
   return out;
  }
  const key=id=>BASE_PREFIX+id;
@@ -111,6 +115,7 @@
   const ids=new Set([...Object.keys(base),...l.keys(),...r.keys()]);
   const merged=[],conflicts=[];
   for(const id of ids){
+   if(id==='@habilidades')continue;
    const lc=li[id]!==base[id],rc=ri[id]!==base[id];
    const value=lc&&rc?(li[id]===ri[id]?l.get(id):null):lc?l.get(id):r.get(id);
    if(lc&&rc&&li[id]!==ri[id]){conflicts.push(l.get(id)?.name||r.get(id)?.name||id);continue}
@@ -119,7 +124,9 @@
   const names=new Map();
   for(const a of merged){const n=a.name.toLocaleLowerCase('pt-BR');if(names.has(n))conflicts.push(a.name+' (nome duplicado)');else names.set(n,a.id)}
   if(!merged.length)conflicts.push('todas as contas foram removidas');
-  return {conflicts,merged:{schema:2,activeId:merged.some(a=>a.id===local.activeId)?local.activeId:(merged.some(a=>a.id===remote.activeId)?remote.activeId:merged[0]?.id),accounts:merged}};
+  const catalog=[];
+  for(const t of [...(local.customTraits||[]),...(remote.customTraits||[])])if(t&&typeof t.id==='string'&&!catalog.some(x=>x.id===t.id||x.name.toLowerCase()===t.name.toLowerCase()))catalog.push(t);
+  return {conflicts,merged:{schema:2,activeId:merged.some(a=>a.id===local.activeId)?local.activeId:(merged.some(a=>a.id===remote.activeId)?remote.activeId:merged[0]?.id),accounts:merged,customTraits:catalog}};
  }
  function pause(reason,conflicts=[]){d.auto=false;d.reason=reason;d.conflicts=conflicts;cancelTimer();updatePanel()}
  async function createOrUpload(payload,meta){
