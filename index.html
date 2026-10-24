@@ -7,9 +7,9 @@
   <!-- Client ID OAuth PUBLICO do Droid Tycoon (nao e Client Secret). -->
   <meta name="droid-google-client-id" content="82040051021-9laa59jolrvh9g8bi2hg11qdgo3eik72.apps.googleusercontent.com" />
   <meta name="description" content="Droid Tycoon: consulte os seis caminhos, acompanhe seus droids e descubra o que guardar ou vender." />
-  <title>Droid Tycoon — Guia de Progressão e Habilidades · v27.2</title>
+  <title>Droid Tycoon — Guia de Progressão e Habilidades · v28.0</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="styles.css?v=27.2" />
+  <link rel="stylesheet" href="styles.css?v=28.0" />
 </head>
 <body>
   <div class="layout">
@@ -17,12 +17,12 @@
       <div class="brand site-brand"><img data-site-logo class="site-logo" src="https://cdn-0001.qstv.on.epicgames.com/lSqvFMJukdOyGNvIFC/image/logo.png" alt="Droid Tycoon" referrerpolicy="no-referrer"/><span class="logo-fallback-text">DROID TYCOON</span><small>GUIA DE PROGRESSÃO</small></div>
       <div class="menu-label">NAVEGAÇÃO</div>
       <nav class="nav-items" id="side-nav" aria-label="Navegação principal">
-        <button type="button" data-tab="dashboard" class="nav-item"><span class="nav-symbol">◫</span><span>Meu caminho</span></button>
-        <button type="button" data-tab="search" class="nav-item"><span class="nav-symbol">⌕</span><span>Consultar droids</span></button>
-        <button type="button" data-tab="pathlist" class="nav-item"><span class="nav-symbol">☷</span><span>Lista do caminho</span></button>
-        <button type="button" data-tab="fusion" class="nav-item"><span class="nav-symbol">⚗</span><span>Fusões especiais</span></button>
-        <button type="button" data-tab="traits" class="nav-item"><span class="nav-symbol">✧</span><span>Guia de Habilidades</span></button>
         <button type="button" data-tab="inventory" class="nav-item"><span class="nav-symbol">▣</span><span>Minha Base</span></button>
+        <button type="button" data-tab="dashboard" class="nav-item"><span class="nav-symbol">◫</span><span>Meu caminho</span></button>
+        <button type="button" data-tab="simulator" class="nav-item"><span class="nav-symbol">◎</span><span>Simular caminho / ciclo</span></button>
+        <button type="button" data-tab="traits" class="nav-item"><span class="nav-symbol">✧</span><span>Guia de Habilidades</span></button>
+        <button type="button" data-tab="fusion" class="nav-item"><span class="nav-symbol">⚗</span><span>Fusões especiais</span></button>
+        <button type="button" data-tab="pathlist" class="nav-item"><span class="nav-symbol">☷</span><span>Lista do caminho</span></button>
         <button type="button" data-tab="settings" class="nav-item"><span class="nav-symbol">⚙</span><span>Configurações</span></button>
       </nav>
       <div class="side-spacer"></div>
@@ -30,17 +30,18 @@
       <div class="source-label">BASE DO JOGO <b>PROGRESSÃO 1.34 / HABILIDADES 1.35.1</b></div>
     </aside>
     <div class="main-shell">
-      <header class="topbar"><div class="mobile-logo site-brand"><img data-site-logo class="site-logo" src="https://cdn-0001.qstv.on.epicgames.com/lSqvFMJukdOyGNvIFC/image/logo.png" alt="Droid Tycoon" referrerpolicy="no-referrer"/><b class="logo-fallback-text">DROID TYCOON</b></div><div class="topbar-left" id="top-breadcrumb">Guia de progressão</div><div class="topbar-right"><div class="account-switcher"><label for="account-select">CONTA ATIVA</label><select id="account-select" class="account-select" data-input="activeAccount" aria-label="Trocar conta"></select></div><button class="account-add" type="button" data-action="createAccount" title="Adicionar conta" aria-label="Adicionar conta">+</button><button class="online-pill cloud-status-button" type="button" id="sync-shortcut" data-tab="settings" title="Abrir sincronização" aria-label="Estado do backup no Google Drive">☁ Local</button><button class="icon-btn" type="button" title="Configurações e backup" data-tab="settings" aria-label="Configurações">⚙</button></div></header>
+      <header class="topbar"><div class="mobile-logo site-brand"><img data-site-logo class="site-logo" src="https://cdn-0001.qstv.on.epicgames.com/lSqvFMJukdOyGNvIFC/image/logo.png" alt="Droid Tycoon" referrerpolicy="no-referrer"/><b class="logo-fallback-text">DROID TYCOON</b></div><div class="topbar-left" id="top-breadcrumb">Guia de progressão</div><div class="topbar-right"><button type="button" class="topbar-sim" data-tab="simulator" title="Simular qualquer caminho e ciclo">◎ <span>Simular</span></button><button type="button" class="topbar-search" data-action="openGlobalSearch" aria-label="Pesquisar qualquer droid" title="Pesquisar droids (Ctrl+K)"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Pesquisar</span></button><div class="account-switcher"><label for="account-select">CONTA ATIVA</label><select id="account-select" class="account-select" data-input="activeAccount" aria-label="Trocar conta"></select></div><button class="account-add" type="button" data-action="createAccount" title="Adicionar conta" aria-label="Adicionar conta">+</button><button class="online-pill cloud-status-button" type="button" id="sync-shortcut" data-tab="settings" title="Abrir sincronização" aria-label="Estado do backup no Google Drive">☁ Local</button><button class="icon-btn" type="button" title="Configurações e backup" data-tab="settings" aria-label="Configurações">⚙</button></div></header>
       <main id="app" class="main-content" aria-live="polite"><div class="loading">Carregando base de droids...</div></main>
     </div>
   </div>
   <nav class="bottom-nav" aria-label="Navegação móvel">
-    <button type="button" data-tab="dashboard"><span aria-hidden="true">⌂</span>Início</button>
-    <button type="button" data-tab="search"><span aria-hidden="true">⌕</span>Consultar</button>
-    <button type="button" data-tab="fusion"><span aria-hidden="true">⚗</span>Fusões</button>
     <button type="button" data-tab="inventory"><span aria-hidden="true">▣</span>Minha Base</button>
+    <button type="button" data-tab="dashboard"><span aria-hidden="true">⌂</span>Caminho</button>
+    <button type="button" data-tab="simulator"><span aria-hidden="true">◎</span>Simular</button>
     <button type="button" data-tab="traits"><span aria-hidden="true">✧</span>Habilidades</button>
+    <button type="button" data-tab="fusion"><span aria-hidden="true">⚗</span>Fusões</button>
   </nav>
+  <div id="global-search-root"></div>
   <div id="detail-root"></div>
   <div id="modal-root"></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -48,7 +49,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="data.js?v=18"></script>
   <script src="drive-backup.js?v=27"></script>
-  <script src="traits.js?v=27.2"></script>
-  <script src="app.js?v=27.2" defer></script>
+  <script src="traits.js?v=28.0"></script>
+  <script src="app.js?v=28.0" defer></script>
 </body>
 </html>
