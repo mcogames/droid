@@ -1,0 +1,54 @@
+DROID TYCOON v28.1 — CAMINHO 6 ATUALIZADO
+Data da revisão: 24 de outubro de 2026
+
+CORREÇÃO
+O Caminho 6 incluído no site v28 ainda era o conjunto da versão 1.34.0.
+Em 17/10/2026 (atualização 1.35.0), o jogo substituiu todos os seus 40 passos.
+Este pacote atualiza somente as 120 entradas do Caminho 6.
+
+ARQUIVOS
+- Atualização: APENAS data.js.
+- Completo: index.html, app.js, styles.css, data.js, traits.js,
+  drive-backup.js e favicon.svg (base v28, com Caminho 6 corrigido).
+
+INSTALAÇÃO MAIS SEGURA
+1. No site atual, faça um backup JSON de todas as contas.
+2. No GitHub, copie o data.js atual para um local seguro ou obtenha
+   uma cópia do repositório antes de substituir o arquivo.
+3. Extraia o ZIP de atualização, que contém apenas data.js, e substitua
+   SOMENTE data.js na raiz do repositório mcogames/droid.
+4. NÃO substitua app.js, index.html, traits.js, drive-backup.js ou estilos.
+5. Aguarde o GitHub Pages atualizar. Recarregue ignorando o cache.
+6. No Simulador, confira Caminho 6 e os Rebirths 2, 19 e 40.
+
+TESTES DO BANCO
+- 120 requisitos novos: 40 rebirths x 3 droids.
+- 40 de 40 rebirths do Caminho 6 alterados comparados à v28.
+- Caminhos 1–5 inalterados (600 entradas idênticas).
+- Custos de rebirth preservados do banco anterior.
+- Catálogo de 100 droids, identificadores, custos de chips e variantes iguais.
+- Sintaxe JavaScript validada por node --check.
+- O simulador, a lista de necessidades e a proteção de venda usam o mesmo
+  conjunto de requisitos, portanto passam a consultar a lista nova.
+- Não foi realizado deploy, login no Drive ou teste na sua conta.
+
+OBSERVAÇÕES SOBRE FONTES
+1. Rebirth 19: PROTO-ROLLER Gold aparece no Droidex, Droid Tycoon Helper
+   e nextrebirth; o próprio Helper registra uma antiga divergência em outra
+   fonte que pede Diamond. Esta versão usa Gold. Confirme no jogo.
+2. Rebirth 36: esta versão preserva 1.2Qa do banco anterior e do Droidex.
+   Outros guias exibem 1.19Qa: o número mostrado no seu jogo prevalece.
+3. A atualização 1.36.0 de 24/10 adicionou a variante Scourge, que
+   satisfaz requisitos de qualquer variante no jogo. ESTA ATUALIZAÇÃO
+   NÃO ADICIONA SCOURGE AO INVENTÁRIO: a mudança afetaria outras partes
+   do programa e precisa de um teste separado.
+
+FONTES CONSULTADAS
+https://droidex.dubtrackr.win/droid-tycoon-tools/rebirth-cycles/
+https://droidtycoonhelper.com/es/rebirth-requirements/path-6/
+https://nextrebirth.app/rb-requirements
+https://droidex.dubtrackr.win/updates/droid-tycoon-v1-36/
+
+Não apague o armazenamento do navegador e não altere os dados reais
+para testar o simulador. Se identificar divergência no jogo, envie
+imagem do Rebirth e a atualização será feita sobre uma cópia segura.
