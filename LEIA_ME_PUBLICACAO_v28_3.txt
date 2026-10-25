@@ -1,0 +1,34 @@
+DROID TYCOON — v28.3: CAMINHO 6 REVISADO + VARIANTE FLAGELO
+Data: 25/10/2026
+
+RESUMO
+- Consolida o Caminho 6 da revisao v28.2 (1.35.0) para TODAS as telas: Meu Caminho, Lista Completa, Simulador, Pendencias, Guarda/Venda e requisitos por droid. Todos usam o banco unico DB.requirements.
+- Adiciona a nona variante: identificador salvo "Scourge", nome exibido em portugues "Flagelo"; icones e cores proprias.
+- Flagelo pode ser cadastrado em droids nao-iconicos em Minha Base, lote, Lista do Caminho e ficha do droid.
+- Flagelo do droid correto satisfaz o requisito de qualquer variante, inclusive Kyber, em qualquer caminho.
+- Flagelo NAO pode ser obtido/evoluido com chips. A calculadora de chips e os botoes Evolui excluem essa opcao.
+- Iconicos continuam com a variante Unica e limite de 1 exemplar de cada por conta.
+- Sugestoes automaticas de fusao NAO incluem ingredientes Flagelo: resultado de fusoes que os utilizem ainda nao foi confirmado; o site nao inventa saidas.
+- Backup, contas, IDs das unidades, historico de habilidades, sincronizacao Drive e 5 primeiros caminhos mantidos.
+
+COMO INSTALAR (se seu site ja esta na versao 28.2)
+1. Acesse seu Droid Tycoon e faca o backup JSON de TODAS as contas.
+2. No GitHub, salve copia dos arquivos atuais antes de substituir.
+3. Extraia o ZIP DE ATUALIZACAO; envie os QUATRO arquivos index.html, app.js, styles.css e data.js para a RAIZ do repositorio /droid. Substitua os quatro.
+4. Nao substitua traits.js, drive-backup.js nem favicon.svg com este pacote. Eles foram preservados.
+5. Aguarde o GitHub Pages publicar, feche e reabra a aba; em desktop use Ctrl+F5. O index.html usa nova versao de cache para os arquivos atualizados.
+6. Teste: Minha Base > cadastrar PLNK como Flagelo; Simular > Caminho 6 > Ciclo 40; a exigencia PLNK Kyber deve ser marcada como atendida.
+7. Abra PLNK > Perfil; confirme a nota "Flagelo · Scourge" e a ausencia de Evolui.
+8. Confirme os outros caminhos, habilidades, contas e backup.
+
+AVISOS IMPORTANTES
+- Nao modifique sua variante Kyber para Flagelo so porque ela e "maior" na ordem do Rebirth. No jogo ela e obtida separadamente, nao por chips; o rendimento depende do bonus Colmeia.
+- O link CDN da imagem de Caminho 6 fornecido na conversa nao carregou neste ambiente. A sequencia de 40 ciclos e a da v28.2, previamente conferida nas fontes publicas; sua comparacao pixel a pixel com a imagem nao foi possivel.
+- Rebirth 19: referencias textuais divergentes sobre a variante do PROTO-ROLLER. Rebirth 36: divergencia pequena no custo (1,2Qa/1,19Qa); o arquivo preserva o criterio v28.2.
+- Teste visual simulou pagina e Javascript incorporados em navegador de teste com armazenamento local simulado. Nao foi publicada no GitHub e nao foi executada autenticacao real do Google Drive.
+
+FONTES
+- Notas do patch 1.36.0: https://www.reddit.com/r/StarWarsDroidTycoon/comments/1xdw0zl/star_wars_droid_tycoon_v1360_patch_notes/
+- Regras Flagelo: https://droidex.dubtrackr.win/updates/droid-tycoon-v1-36/
+- Rebirth Path 6: https://droidex.dubtrackr.win/droid-tycoon-tools/rebirth-cycles/
+- Helper Caminho 6: https://droidtycoonhelper.com/rebirth-requirements/path-6/

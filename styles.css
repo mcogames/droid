@@ -874,3 +874,16 @@ body{background:radial-gradient(ellipse at 86% -16%,#153448 0,transparent 45%),v
 @media(max-width:400px){.sim-controls{grid-template-columns:1fr}.topbar .account-select{max-width:104px}.topbar .account-add{padding:0 5px}.droid-profile-facts strong{font-size:11px}}
 @keyframes bottomDrawerAppear{from{opacity:.85;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.main-content,.global-search-panel,.global-search-veil,.detail-drawer,.detail-backdrop{animation:none!important}.nav-item,.bottom-nav button,.card{transition:none!important}}
+
+/* v28.3 — Flagelo / Scourge: variante independente, não é evolução de Kyber. */
+.droid-thumb[data-variant="Scourge"]{--tier-color:#ffd0e8;--tier-bg:radial-gradient(circle at 23% 25%,#f352a365,transparent 37%),radial-gradient(circle at 85% 82%,#c039d989,transparent 40%),repeating-linear-gradient(150deg,#fd77b615 0 2px,transparent 2px 11px),linear-gradient(140deg,#5e165c,#291336 63%,#120e25);--tier-glow:#f058a6ad}
+.droid-thumb[data-variant="Scourge"]::before{opacity:.97;background-image:radial-gradient(2px 2px at 24% 35%,#ffc4e6 90%,transparent),radial-gradient(2px 2px at 76% 19%,#f997df 90%,transparent),linear-gradient(58deg,transparent 43%,#f374b655 44%,transparent 47%),linear-gradient(122deg,transparent 63%,#bd47d05c 64%,transparent 67%)}
+.variant-token[data-variant="Scourge"]{color:#ffd8f0;background:linear-gradient(130deg,#562253,#6d2450);border-color:#d85ea8}
+.variant-name[data-variant="Scourge"],
+.variant-token[data-variant="Scourge"],
+.variant-pill[data-variant="Scourge"],
+.path-need[data-variant="Scourge"],
+.owned-variant[data-variant="Scourge"],
+.variant-select[data-variant="Scourge"]{--variant-fg:#ffa9db}
+.scourge-help{border-left:3px solid #de67a8}
+.scourge-help p{line-height:1.55}

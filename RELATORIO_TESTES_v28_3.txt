@@ -1,0 +1,25 @@
+RELATORIO DE TESTES v28.3 — 25/10/2026
+
+20 verificacoes funcionais aprovadas, simuladas em Chromium com DOM real e armazenamento isolado.
+- Carregamento JS sem erros.
+- Registro da variante Scourge como nona variante.
+- Flagelo satisfaz requisitos Kyber do mesmo droid (PLNK, ECG, DRFT-R) no Caminho 6 ciclo 40.
+- Duas unidades de Flagelo satisfazem dois requisitos do mesmo droid quando necessario.
+- Flagelo em Icônicos rejeitado; cadastro em droids normais aceito.
+- Flagelo NAO pode ser destino ou origem na calculadora de chips.
+- Protecao contra venda de Flagelos usados nos requisitos do ciclo 40.
+- Planejamento de evolucao nao tenta evoluir Flagelo ja suficiente.
+- Fusoes automáticas nao usam Flagelo e nao simulam sair de Flagelo.
+- UI do Simulador 6/40 exibe 3 de 3 requisitos atendidos quando os 3 estao cadastrados como Flagelo.
+- Ficha de Flagelo com regras especificas e ausencia do botao de evolucao.
+- Cadastro e salvamento real de GONK Flagelo usando a interface do app.
+- Contas isoladas: a conta secundaria nao alterou a conta principal.
+- 720 requisitos em 6 caminhos, 120 no Caminho 6, 3 em cada um dos 240 ciclos.
+- Base da v28.2 comparada: todos os 720 requisitos identicos; banco de 100 droids identico, custos de chips identicos.
+- traits.js, drive-backup.js, favicon.svg identicos byte a byte a v28.2.
+- node --check app.js e data.js concluídos sem erros.
+
+LIMITACOES
+- Nao houve publicacao GitHub nem login Google real.
+- Link da imagem original do Caminho 6 nao foi acessivel pela CDN; criterios v28.2 mantidos.
+- Fusao com Flagelo nao e sugerida/confirmada automaticamente enquanto mecanica nao verificada.
