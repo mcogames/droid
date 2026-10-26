@@ -1,0 +1,41 @@
+/* Droid Tycoon v28.4 — camada visual opcional, não altera regras nem variantes */
+:root{
+ color-scheme:dark;
+ --bg:#040309;--side:#06050b;--surface:#0b0a12;--surface2:#100e18;--surface3:#171321;
+ --line:#282132;--text:#f7f5fb;--muted:#b6acbf;--quiet:#95899f;
+ --primary:#a8c7d6;--primarydark:#161923;
+ --theme-rgb:168,199,214;--theme-contrast:#08070d;
+ --theme-gradient:linear-gradient(115deg,#657e94,#d8e7ef,#7497b0);
+ --shadow:0 16px 38px rgba(0,0,0,.42)
+}
+html[data-rebirth-theme="1"]{--primary:#36dde8;--primarydark:#0a252b;--theme-rgb:54,221,232;--theme-contrast:#080911;--theme-gradient:linear-gradient(110deg,#28c9e9,#766bff 46%,#ec69b5)}
+html[data-rebirth-theme="2"]{--primary:#b3c7d4;--primarydark:#1a2229;--theme-rgb:179,199,212;--theme-contrast:#080911;--theme-gradient:linear-gradient(110deg,#536979,#d8e5ed,#7794a7)}
+html[data-rebirth-theme="3"]{--primary:#398bff;--primarydark:#0b1b3a;--theme-rgb:57,139,255;--theme-contrast:#080911;--theme-gradient:linear-gradient(110deg,#103a98,#237cf4,#62bcff)}
+html[data-rebirth-theme="4"]{--primary:#f4bd56;--primarydark:#2f2210;--theme-rgb:244,189,86;--theme-contrast:#110c06;--theme-gradient:linear-gradient(110deg,#9f6317,#f2bd54,#ffe2a0)}
+html[data-rebirth-theme="5"]{--primary:#36edc7;--primarydark:#092b27;--theme-rgb:54,237,199;--theme-contrast:#04120f;--theme-gradient:linear-gradient(110deg,#0b7d86,#2ae6bf,#8dfff0)}
+html[data-rebirth-theme="6"]{--primary:#d056d4;--primarydark:#28102d;--theme-rgb:208,86,212;--theme-contrast:#110615;--theme-gradient:linear-gradient(110deg,#5b2161,#98279f,#d056d4)}
+body{background:#040309;color:var(--text)}
+.sidebar{background:var(--side)}
+.card,.path-panel,.modal{background:var(--surface);border-color:var(--line)}
+.modal-backdrop{background:rgba(1,0,3,.83)}
+.modal{box-shadow:0 30px 90px rgba(0,0,0,.75)}
+.input,.select{background:#0b0912;color:var(--text);border-color:#3a3047}
+.nav-item:hover{background:rgba(var(--theme-rgb),.08)}
+.nav-item.active,.seg button.on,.filter-pill.on,.path-select.chosen{background:rgba(var(--theme-rgb),.12)!important;color:var(--primary)!important;border-color:rgba(var(--theme-rgb),.55)!important}
+.btn:not(.secondary):not(.ghost):not(.danger):not(.linklike):not(.outline-green){background:var(--primary);color:var(--theme-contrast)}
+.btn.outline-green{background:rgba(var(--theme-rgb),.12);color:var(--primary);border-color:rgba(var(--theme-rgb),.42)}
+.btn.secondary,.icon-btn{background:var(--surface2);border-color:var(--line)}
+.hero{background:linear-gradient(110deg,#0d0b15 35%,rgba(var(--theme-rgb),.12));border-color:rgba(var(--theme-rgb),.32)}
+.hero:after{border-color:rgba(var(--theme-rgb),.045)}
+.hero-orbit{color:var(--primary)}
+.section-icon{background:rgba(var(--theme-rgb),.09);color:var(--primary)}
+.cycle-pill{background:rgba(var(--theme-rgb),.11);color:var(--primary)}
+.seg{background:#0c0b14}
+.toast{background:#11101a;border-color:rgba(var(--theme-rgb),.45);color:var(--primary)}
+.sticky-batch{background:#15101e;border-color:rgba(var(--theme-rgb),.5)}
+.topbar,.sidebar,.section-body{border-color:var(--line)}
+.theme-path-marker{font-weight:750;font-size:11px;letter-spacing:.04em;color:var(--primary);border:1px solid rgba(var(--theme-rgb),.43);background:rgba(var(--theme-rgb),.08);border-radius:999px;padding:5px 9px;white-space:nowrap}
+.theme-path-marker::before{content:"✦ ";}
+/* Mantém intactas as cores semânticas de raridade, variantes e avisos críticos. */
+@media (prefers-reduced-motion:no-preference){.nav-item,.card,.btn,.hero,.theme-path-marker{transition:background-color .22s ease,border-color .22s ease,color .22s ease}}
+@media(max-width:640px){.theme-path-marker{font-size:10px;padding:4px 7px}}
