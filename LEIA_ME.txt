@@ -1,0 +1,9 @@
+DROID TYCOON v28.4.5 - PACOTE DE INTEGRAÇÃO
+
+ATENÇÃO: manter estilos e habilidades atuais styles.css, traits.js e favicon.svg no repositório. Estes arquivos não foram enviados nesta rodada.
+Substituir index.html, app.js, data.js, drive-backup.js, e publicar CSS e JS novos deste ZIP numa BRANCH DE TESTE.
+
+Nova: carteira no schema de cada conta e Google Drive; importação automática da carteira local v28.4.4 quando ela ainda não foi migrada; a cópia local anterior é mantida. Ganho ao confirmar o ciclo de Rebirth 20 ao 40. Não aplica retroativamente ciclos antigos. O simulador não credita nada. Super Renascimento ganha recompensas próprias apenas mediante lançamento manual.
+Recompensas: 20=5,21=10,22=15,23=20,24=25,25=40,26=50,27=60,28=70,29=80,30=120,31=140,32=160,33=180,34=200,35-40=300. Fontes comunitárias (v1.36): https://droidtycoonhelper.com/super-rebirth/ ; https://droidtycoonhelper.com/nova-shop/
+
+CRÍTICO: faça backup completo JSON antes de testar a migração. Teste novo usuário e restauração do Drive antes de publicar. NÃO publique dois módulos independentes de Nova. Os arquivos nova-ledger.js e nova-backup-integration.js anteriores não fazem parte desta versão.

@@ -13,7 +13,7 @@ const rarityLabel=rarity=>RARITY_PT[rarity]||rarity||'';
 const rarityTag=rarity=>rarity?`<span class="rarity-label" data-rarity="${h(rarity)}">${h(rarityLabel(rarity))}</span>`:'';
 const roleLabel=role=>ROLE_PT[role]||role||'';
 // Traduzir somente o que é exibido; manter os identificadores originais no inventário e nos backups.
-const VARIANT_PT={Default:'Padrão',Gold:'Ouro',Diamond:'Diamante',Rainbow:'Arco-íris',Beskar:'Beskar',Galactic:'Galáctica',Stellar:'Estelar',Kyber:'Kyber',Scourge:'Flagelo','Única':'Única'};
+const VARIANT_PT={Default:'Padrão',Gold:'Ouro',Diamond:'Diamante',Rainbow:'Arco-íris',Beskar:'Beskar',Galactic:'Galáctico',Stellar:'Estelar',Kyber:'Kyber',Scourge:'Flagelo','Única':'Única'};
 const variantLabel=tier=>VARIANT_PT[tier]||tier||'';
 // Imagens de referência fornecidas pelo Droid Tycoon Helper. Falhas usam ícones locais.
 const IMAGE_ROOT='https://droidtycoonhelper.com/img/droids/';
@@ -116,7 +116,48 @@ function smartUnitSelect(name,tier,field,index=0){const pool=smartUnits(name,tie
 function isValuable(u){return u.favorite||unitFit(u).score>=5}
 function ensureValuableConsent(units,action){const risky=units.filter(isValuable);return !risky.length||window.confirm(`ATENÇÃO: ${risky.length} unidade(s) selecionada(s) são favoritas ou possuem habilidades Excelentes. Deseja realmente ${action}?`)}
 function opRecord(kind,units,extra={}){state.unitOperations.push({kind,date:new Date().toISOString(),units:units.map(u=>u.id),...extra});state.unitOperations=state.unitOperations.slice(-150)}
-const empty=()=>({schema:1,path:0,cycle:1,inventory:{},absent:{},sales:[],removals:[],history:[],completed:[],fusions:{plans:{},history:[],genericPlans:[],genericHistory:[]},units:[],unitArchive:[],unitOperations:[],finance:{nova:null,credits:null,budget:null},financeLedger:[],lastModified:Date.now()});
+// Cristais Nova - a fonte canônica fica no schema de cada conta, sincronizada no Drive.
+const NOVA_REWARDS=Object.freeze({20:5,21:10,22:15,23:20,24:25,25:40,26:50,27:60,28:70,29:80,30:120,31:140,32:160,33:180,34:200,35:300,36:300,37:300,38:300,39:300,40:300});
+const NOVA_OLD_PREFIX='droidTycoon_novaLedger_v1_';
+function cleanNovaLedger(raw){
+ const opening=Number.isSafeInteger(raw?.opening)&&raw.opening>=0?raw.opening:null;
+ const seen=new Set(),rows=[];
+ if(Array.isArray(raw?.rows))for(const r of raw.rows.slice(0,10000)){
+  if(!r||typeof r.id!=='string'||!r.id||r.id.length>150||seen.has(r.id)||!['in','out'].includes(r.type)||!Number.isSafeInteger(r.amount)||r.amount<=0)continue;
+  seen.add(r.id);rows.push({id:r.id,type:r.type,amount:r.amount,note:String(r.note||'').slice(0,160),date:typeof r.date==='string'?r.date.slice(0,40):'',source:String(r.source||'manual').slice(0,30),path:Number.isInteger(r.path)?r.path:null,cycle:Number.isInteger(r.cycle)?r.cycle:null});
+ }
+ return {opening,rows};
+}
+function novaBalance(ledger){return (ledger.opening||0)+ledger.rows.reduce((sum,r)=>sum+(r.type==='in'?r.amount:-r.amount),0)}
+function ensureNova(){if(state.novaLedger.opening===null)state.novaLedger.opening=Number.isSafeInteger(state.finance.nova)?state.finance.nova:0;state.finance.nova=novaBalance(state.novaLedger)}
+function novaAppend(type,amount,note,source='manual',id='nova-'+newId(),path=null,cycle=null){
+ if(!Number.isSafeInteger(amount)||amount<=0)throw Error('Informe uma quantidade inteira positiva.');
+ ensureNova();if(state.novaLedger.rows.some(r=>r.id===id))return false;
+ if(type==='out'&&amount>novaBalance(state.novaLedger))throw Error('Saldo insuficiente de Cristais Nova.');
+ if(state.novaLedger.rows.length>=9999)throw Error('Histórico Nova atingiu o limite. Exporte um backup antes de continuar.');
+ state.novaLedger.rows.push({id,type,amount,note,date:new Date().toISOString(),source,path,cycle});
+ state.finance.nova=novaBalance(state.novaLedger);return true;
+}
+function importLegacyNova(){
+ let changed=false;
+ for(const acct of accountsDb.accounts){
+  const original=acct.data.novaLedger;
+  let raw=null;try{raw=JSON.parse(localStorage.getItem(NOVA_OLD_PREFIX+encodeURIComponent(acct.id))||'null')}catch(e){}
+  if(!raw||!Array.isArray(raw.rows))continue;
+  if(original.opening!==null||original.rows.length)continue; // nunca substituir histórico já sincronizado
+  const migrated=cleanNovaLedger(raw);if(migrated.opening===null)continue;
+  if(novaBalance(migrated)<0)continue;
+  acct.data.novaLedger=migrated;acct.data.finance.nova=novaBalance(migrated);changed=true;
+ }
+ if(changed){state=currentAccount().data;writeAccounts()}
+}
+function novaPanel(){
+ const ledger=state.novaLedger, balance=ledger.opening===null?(state.finance.nova??0):novaBalance(ledger);
+ const rows=ledger.rows.slice(-150).reverse().map(r=>`<div class="nova-inline-row"><div><b>${h(r.note||'Movimentação')}</b><small>${h(r.date.slice(0,10))} · ${h(r.source==='rebirth'?'Rebirth automático':r.source==='scanner'?'Scanner':'Manual')}</small></div><strong style="color:${r.type==='in'?'#72e6ad':'#ff8aa5'}">${r.type==='in'?'+':'−'}${nf(r.amount)}</strong></div>`).join('');
+ return `<section id="nova-wallet" class="card card-pad nova-inline-card"><div class="wizard-path-title"><div><h2>💎 Meus Cristais Nova</h2><p class="mini-note">Conta: ${h(currentAccount().name)} · Histórico integrado ao backup do Google Drive</p></div><img src="cristal-nova.png" style="height:64px;width:64px;object-fit:contain" alt="Cristal Nova"></div><div class="nova-inline-balance"><small>SALDO DISPONÍVEL</small><strong>${nf(balance)}</strong></div><p class="mini-note">Rebirths 20–40: recompensas creditadas ao confirmar a conclusão. Super Renascimento: registre o ganho efetivo manualmente, separadamente.</p><form id="nova-wallet-form"><label>Movimentação<select class="select" name="type"><option value="in">Ganhei</option><option value="out">Gastei</option></select></label><label>Quantidade<input class="input" type="number" name="amount" min="1" step="1" required></label><label>Motivo<input class="input" type="text" name="note" maxlength="160" placeholder="Evento, compra, Super Renascimento..."></label><button type="submit" class="btn">Registrar cristais</button></form><details class="nova-inline-history"><summary>Histórico (${ledger.rows.length} movimentações)</summary>${rows||'<p class="mini-note">Nenhuma movimentação registrada.</p>'}</details></section>`;
+}
+window.DroidNovaRewards=NOVA_REWARDS;
+const empty=()=>({schema:1,path:0,cycle:1,inventory:{},absent:{},sales:[],removals:[],history:[],completed:[],fusions:{plans:{},history:[],genericPlans:[],genericHistory:[]},units:[],unitArchive:[],unitOperations:[],finance:{nova:null,credits:null,budget:null},financeLedger:[],novaLedger:{opening:null,rows:[]},lastModified:Date.now()});
 function sanitize(raw){if(!raw||typeof raw!=='object'||raw.schema!==1)throw new Error('Arquivo incompatível ou sem dados válidos.');
  const x=empty();x.path=Number(raw.path)||0;if(!Number.isInteger(x.path)||x.path<0||x.path>6)throw new Error('Caminho inválido.');
  x.cycle=Number(raw.cycle)||1;if(!Number.isInteger(x.cycle)||x.cycle<1||x.cycle>40)throw new Error('Ciclo inválido.');
@@ -129,6 +170,7 @@ function sanitize(raw){if(!raw||typeof raw!=='object'||raw.schema!==1)throw new 
  x.unitOperations=Array.isArray(raw.unitOperations)?raw.unitOperations.filter(x=>x&&typeof x==='object').slice(-150).map(x=>JSON.parse(JSON.stringify(x))):[];
  const f=raw.finance||{};for(const k of ['nova','credits','budget'])x.finance[k]=(f[k]===null||f[k]===undefined||f[k]==='')?null:(Number.isFinite(Number(f[k]))&&Number(f[k])>=0?Number(f[k]):null);
  x.financeLedger=Array.isArray(raw.financeLedger)?raw.financeLedger.filter(x=>x&&typeof x==='object').slice(-200):[];
+ x.novaLedger=cleanNovaLedger(raw.novaLedger); if(x.novaLedger.opening!==null)x.finance.nova=novaBalance(x.novaLedger);
  x.lastModified=Number(raw.lastModified)||Date.now();return x;
 }
 // O armazenamento v1 NÃO é apagado. Na primeira abertura, é copiado para a conta inicial.
@@ -169,6 +211,7 @@ let accountsDb=null,storageError='';
 try{accountsDb=loadAccounts()}catch(e){storageError=e.message||'Armazenamento indisponível.';accountsDb={schema:2,activeId:'bloqueada',accounts:[{id:'bloqueada',name:'Recuperação',data:readLegacy(),notices:{}}]}}
 function currentAccount(){return accountsDb.accounts.find(a=>a.id===accountsDb.activeId)||accountsDb.accounts[0]}
 let state=currentAccount().data,unreadNotices=currentAccount().notices;
+if(!storageError)importLegacyNova();
 let ui={tab:'inventory',open:new Set(['pending']),baseAccordionKey:'',search:'',pathFilter:0,detail:'',detailTier:'',browsePath:1,browseCycle:1,simPath:1,simCycle:1,simReady:false,globalSearchOpen:false,globalSearch:'',catalogSearch:'',catalogRarity:'Todos',catalogAll:false,batch:{},batchMode:true,setupPath:1,setupCycle:1,setupRegister:true,pathSearch:'',pathChecklistFilter:'Todos',pathBatch:{},pathDraft:{},fusionFilter:'Todas',fusionSearch:'',fusionOpen:'',fusionDraft:{},inventorySearch:'',inventoryScope:'mine',inventoryFilter:'Todos',fusionIdeaFilter:'Todas',fusionIdeaExpanded:false,catalogVisible:false,lastQuickSale:false,guideSearch:'',guideOnlyFavorites:false,modal:null},undo=null,toastTimer=null;
 function saveAccountsBlob(){
  if(storageError){notify('Salvamento bloqueado: '+storageError);return false}
@@ -304,6 +347,7 @@ function requireCounts(){
  const owned=arrInventory(state),groups=new Map();
  for(const row of owned){if(!groups.has(row.name))groups.set(row.name,[]);groups.get(row.name).push(row)}
  for(const [name,rows] of groups){
+   if(isIconic(name)){for(const row of rows)protectedEntries.push({...row,qty:row.qty,fusionQty:0,pathQty:row.qty,current:false,requirements:reqFor(name),upgrades:[],upgradeQty:0});continue;} // icônicos nunca vendáveis
   const remainder={},fixed={};
   for(const row of rows){
    const fusion=Math.min(row.qty,reserved[nextId(name,row.tier)]||0);
@@ -602,7 +646,7 @@ function inventory(){
  let pool=state.path&&!ui.catalogAll?CAT.filter(d=>reqFor(d.name).length):CAT;pool=pool.filter(d=>(ui.catalogRarity==='Todos'||d.rarity===ui.catalogRarity)&&normSearch(d.name).includes(normSearch(ui.catalogSearch)));
  const catalog=`<section class="card card-pad" style="margin-top:17px"><div class="wizard-path-title"><h2 style="margin:0">Cadastro em lote</h2>${badge(`${pool.length} resultados`,'blue')}</div><div class="utility-bar"><div class="searchbox"><input class="input search-input" data-input="catalogSearch" value="${h(ui.catalogSearch)}" placeholder="Buscar droids para cadastrar..."></div><div class="field"><label class="hidden" for="catalog-rarity">Raridade</label><select class="select" id="catalog-rarity" data-input="catalogRarity">${selects([{value:'Todos',label:'Todas as raridades'},...['Common','Rare','Epic','Legendary','Mythic','Iconic'].map(value=>({value,label:rarityLabel(value)}))],ui.catalogRarity)}</select></div></div><div class="filter-row"><div class="seg"><button type="button" data-action="catalogMode" data-mode="current" class="${!ui.catalogAll?'on':''}">Do meu caminho</button><button type="button" data-action="catalogMode" data-mode="all" class="${ui.catalogAll?'on':''}">Todos os 100</button></div></div><div class="catalog-items">${pool.map(d=>`<div class="catalog-item"><button type="button" ${panelButton(d.name)}>${imageOf(d.name,false,best(d.name)||'Default')}<span class="droid-info"><span class="name">${h(d.name)}</span><span class="info rarity-meta">${rarityTag(d.rarity)} <span class="role-label">${h(roleLabel(d.role))}</span></span></span></button><div class="catalog-actions"><label class="batch-check"><input class="checkbox" type="checkbox" data-input="batchToggle" data-name="${h(d.name)}" ${ui.batch[d.name]?'checked':''}> Lote</label>${isIconic(d.name)&&anyOwned(d.name)?'<span class="mini-note">Máx. 1 por conta ✓</span>':btn('+ Adicionar','add',{kind:'secondary',size:'small',attrs:`data-name="${h(d.name)}"`})}</div>${ui.batch[d.name]?`<div class="batch-box"><span class="small muted">Variante</span>${tierSelect(ui.batch[d.name].tier,d.rarity==='Iconic','batchTier',`data-input="batchTier" data-name="${h(d.name)}"`)}<span class="small muted">Quantidade</span><input class="input" type="number" min="1" max="${isIconic(d.name)?1:10000}" value="${ui.batch[d.name].qty}" data-input="batchQty" data-name="${h(d.name)}" aria-label="Quantidade de ${h(d.name)}"></div>`:''}</div>`).join('')||'<div class="empty">Nenhum droid corresponde aos filtros.</div>'}</div></section>`;
  const iconicLegacy=CAT.filter(d=>isIconic(d.name)&&countOwned(d.name)>1).map(d=>d.name);const iconicWarning=iconicLegacy.length?`<div class="hint removal-warning">⚠ Existem Icônicos com mais de uma unidade cadastrada anteriormente (${h(iconicLegacy.join(', '))}). Esses registros foram preservados para evitar perda de informações; revise as quantidades na Minha Base. Novos duplicados estão bloqueados.</div>`:'';
- return titlePage('INVENTÁRIO ATUAL','Minha Base','Sua base e o catálogo completo em um único lugar. Flagelo atende todas as variantes exigidas no Rebirth.',state.path?`${btn('Lista completa do caminho','openpathlist',{kind:'secondary'})}${btn('Meu caminho','opendashboard',{kind:'ghost'})}`:btn('Escolher caminho','setup'))+(!state.path?'<div class="hint" style="margin-bottom:18px">Selecione um caminho para ativar as recomendações de venda e fusão.</div>':'')+iconicWarning+toolbar+myDroids+(!isAll?missingBasePanel():'')+(!isAll?fusionSuggestionsPanel():'')+(ui.catalogVisible?catalog:'')+(ui.catalogVisible&&Object.keys(ui.batch).length?`<div class="sticky-batch"><span><b>${Object.keys(ui.batch).length} selecionado(s)</b></span>${btn('Salvar em lote','saveBatch')}</div>`:'')+footer();
+ return titlePage('INVENTÁRIO ATUAL','Minha Base','Sua base e o catálogo completo em um único lugar. Flagelo atende todas as variantes exigidas no Rebirth.',state.path?`${btn('Lista completa do caminho','openpathlist',{kind:'secondary'})}${btn('Meu caminho','opendashboard',{kind:'ghost'})}`:btn('Escolher caminho','setup'))+(!state.path?'<div class="hint" style="margin-bottom:18px">Selecione um caminho para ativar as recomendações de venda e fusão.</div>':'')+iconicWarning+toolbar+myDroids+(!isAll?novaPanel():'')+(!isAll?missingBasePanel():'')+(!isAll?fusionSuggestionsPanel():'')+(ui.catalogVisible?catalog:'')+(ui.catalogVisible&&Object.keys(ui.batch).length?`<div class="sticky-batch"><span><b>${Object.keys(ui.batch).length} selecionado(s)</b></span>${btn('Salvar em lote','saveBatch')}</div>`:'')+footer();
 }
 
 
@@ -1231,7 +1275,7 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
    const v=String(vals.get(k)||'').trim();data[k]=parseGameMoney(v);
    if(v&&(!Number.isFinite(data[k])||data[k]<0))return notify('Informe um saldo válido, como 200, 2B ou 3T.');
   }
-  save(()=>{state.finance={...data}},'Saldo da conta atualizado.');break;
+  save(()=>{ensureNova();if(data.nova!==null){const delta=data.nova-novaBalance(state.novaLedger);if(delta!==0)novaAppend(delta>0?'in':'out',Math.abs(delta),'Ajuste de saldo informado','adjustment')}state.finance={...state.finance,credits:data.credits,budget:data.budget,nova:novaBalance(state.novaLedger)}},'Saldo da conta atualizado.');break;
  }
  case 'unitProfile':{
   const u=unitById(m.id);if(!u)return notify('Unidade não encontrada nesta conta.');
@@ -1259,7 +1303,7 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
    const trait=saveNewCustomTrait(selection),grade=selection.grade;
    u.history.push({date:new Date().toISOString(),from:u.traitStatus==='known'?u.trait:'Não verificado',trait,grade,label:'Tentativa: '+(TRAITS.byId[trait]?.label||accountsDb.customTraits.find(x=>x.id===trait)?.name||trait),cost,currency});u.history=u.history.slice(-80);
    u.rolls++;u.traitStatus='known';u.trait=trait;u.grade=grade;u.bonus=selection.bonus;
-   if(cost!=null&&state.finance[currency]!=null)state.finance[currency]=Math.max(0,state.finance[currency]-cost);
+   if(cost!=null&&state.finance[currency]!=null){if(currency==='nova'){ensureNova();if(cost>novaBalance(state.novaLedger))throw Error('Saldo Nova insuficiente. Atualize a carteira antes de registrar esta tentativa.');if(cost>0)novaAppend('out',cost,`Scanner de habilidade · ${u.name}`,'scanner');}else state.finance[currency]=Math.max(0,state.finance[currency]-cost);}
    state.financeLedger.push({date:new Date().toISOString(),unitId:u.id,spent:cost,currency,shortage:cost!=null&&balance!=null?Math.max(0,cost-balance):null});state.financeLedger=state.financeLedger.slice(-200);
    opRecord('tentativa',[u],{cost,currency});
   },'Nova habilidade e custo registrados.');break;
@@ -1315,7 +1359,7 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
   save(()=>{mutateInventory(m.name,m.tier,-qty,chosen.map(u=>u.id),'venda');opRecord('venda',chosen);state.sales.push({name:m.name,tier:m.tier,qty,date:new Date().toISOString()});state.sales=state.sales.slice(-30)},'Venda registrada. Você pode desfazer.');break;
  }
  case 'cycle':{const cycle=nInt(vals.get('cycle'),1,40);if(!cycle)return;save(()=>{state.cycle=cycle},`Ciclo atualizado para ${cycle}.`);break}
- case 'advance':{const final=state.cycle===40;if(final&&state.completed.some(x=>x.path===state.path&&x.cycle===40))return;save(()=>{state.completed.push({path:state.path,cycle:state.cycle});if(final){state.history.push({path:state.path,cycle:40,date:new Date().toLocaleDateString('pt-BR'),finished:true,inventory:JSON.parse(JSON.stringify(state.inventory))});state.history=state.history.slice(-30)}else state.cycle++},final?'Caminho concluído!':'Ciclo atualizado.');break}
+ case 'advance':{const final=state.cycle===40;if(final&&state.completed.some(x=>x.path===state.path&&x.cycle===40))return;save(()=>{const currentPath=state.path,currentCycle=state.cycle;const already=state.completed.some(x=>x.path===currentPath&&x.cycle===currentCycle);if(already)throw Error('Ciclo já concluído e registrado.');state.completed.push({path:currentPath,cycle:currentCycle});const reward=NOVA_REWARDS[currentCycle]||0;if(reward)novaAppend('in',reward,`Rebirth automático · Caminho ${currentPath} · Ciclo ${currentCycle}`,'rebirth',`nova-rebirth:${currentPath}:${currentCycle}`,currentPath,currentCycle);if(final){state.history.push({path:state.path,cycle:40,date:new Date().toLocaleDateString('pt-BR'),finished:true,inventory:JSON.parse(JSON.stringify(state.inventory))});state.history=state.history.slice(-30)}else state.cycle++},final?'Caminho concluído!':'Ciclo atualizado.');break}
  case 'changePath':{const p=nInt(vals.get('path'),1,6);if(!p||p===state.path)return;try{localStorage.setItem(RESTORE,JSON.stringify(state))}catch(e){};save(()=>{for(const u of state.units)archiveUnit(u,'mudança de caminho');state.history.push({path:state.path,cycle:state.cycle,date:new Date().toLocaleDateString('pt-BR'),inventory:JSON.parse(JSON.stringify(state.inventory))});state.path=p;state.cycle=1;state.inventory={};state.units=[];state.absent={};state.completed=[];state.sales=[];state.fusions.plans={};state.fusions.genericPlans=[];state.history=state.history.slice(-30)},`Caminho ${p} iniciado. Inventário reiniciado.`);ui.open=new Set(['pending']);break}
  case 'createAccount':{
   const name=validAccountName(vals.get('name'));if(!name||!nameAvailable(name))return notify('Use um nome diferente, com até 40 caracteres.');
@@ -1569,6 +1613,7 @@ document.addEventListener('load',e=>{if(e.target.matches?.('img[data-site-logo]'
 document.querySelectorAll('img[data-site-logo]').forEach(img=>{if(img.complete&&img.naturalWidth)img.parentElement.classList.add('logo-loaded');else if(img.complete&&img.naturalWidth===0){img.hidden=true;img.parentElement.classList.add('logo-failed')}});
 document.addEventListener('error',e=>{if(e.target.matches('img[data-droid-img]')){e.target.hidden=true;e.target.parentElement.classList.add('img-failed')}if(e.target.matches('img[data-site-logo]')){e.target.hidden=true;e.target.parentElement.classList.add('logo-failed')}},true);
 if(!DB||CAT.length!==100||R.length!==720)alert('Erro: base de droids incompleta. Atualize os arquivos do site.');
+document.addEventListener('submit',e=>{if(e.target?.id!=='nova-wallet-form')return;e.preventDefault();const data=new FormData(e.target),type=String(data.get('type')),amount=Number(data.get('amount')),note=String(data.get('note')||'').trim();if(!['in','out'].includes(type)||!Number.isSafeInteger(amount)||amount<=0)return notify('Informe uma quantidade inteira maior que zero.');save(()=>novaAppend(type,amount,note|| (type==='in'?'Ganho Nova':'Gasto Nova')),'Cristais Nova atualizados e incluídos no backup.');});
 // A integração usa os mesmos backups schema 2 e a importação existente,
  // que pede confirmação antes de substituir contas com nomes coincidentes.
  window.DroidDrive?.init({
