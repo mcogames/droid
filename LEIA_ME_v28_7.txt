@@ -1,0 +1,8 @@
+DROID TYCOON v28.7 — FICHA TÉCNICA UNIVERSAL
+
+Abrir um droid na Minha Base, busca ou catálogo → Ficha técnica → Expandir.
+A seção Minhas unidades exibe a habilidade, bônus, proteção de icônicos e histórico por unidade, com botões para editar e registrar tentativa.
+Os bônus naturais continuam sendo lidos do traits.js. Nenhuma estatística de picareta foi inventada.
+NÃO muda schema de dados e NÃO migra/apaga inventários.
+
+IMPORTANTE: este pacote continua sendo uma atualização parcial como a v28.6.1; preserve os arquivos styles.css, traits.js, favicon.svg e nova-ledger.css que já estejam no site. Não apague arquivos existentes ao publicar. Faça backup JSON e teste numa branch antes de promover.

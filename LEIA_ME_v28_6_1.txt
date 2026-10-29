@@ -1,0 +1,9 @@
+DROID TYCOON v28.6.1 — FORMULÁRIO DE FUSÃO SEM DUPLICAÇÃO
+
+Na aba Fusões especiais, usar Escolher meus droids > + Escolher 3 droids.
+
+Mudança: no modal de confirmação, cada ingrediente aparece apenas uma vez, com variante e seletor de unidade. A lógica de validação/consumo de unidades permanece a da v28.6.
+
+Publicar sobre a v28.6 somente depois de exportar backup JSON e testar em branch. Não apagar styles.css, traits.js nem favicon.svg da raiz do GitHub.
+
+O pacote contém os arquivos da v28.6, app.js atualizado, index.html atualizado e fusion-ingredient-cards.css. Não houve alteração no formato dos backups.
