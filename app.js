@@ -311,12 +311,50 @@ function fusionPlanNeeds(skip=''){
 // Um exemplar de variante inferior também pode cumprir um requisito futuro APÓS evoluir.
 // A cobertura potencial protege o droid para evolução; NÃO marca o ciclo como concluído.
 // Droids de ciclos diferentes são reutilizados, então contamos cada ciclo em separado.
+// Cobertura dupla: variante real E potencial de evolução por chips.
+// Nenhum cálculo permite retirar uma unidade que reduza qualquer uma das duas.
 function futureCycleCoverage(name,remaining){
  if(!state.path)return [];
- const total=Object.values(remaining).reduce((sum,qty)=>sum+Math.max(0,qty||0),0);
- const byCycle=new Map();
- for(const r of reqFor(name))byCycle.set(r.c,(byCycle.get(r.c)||0)+1);
- return [...byCycle.values()].map(required=>Math.min(total,required));
+ const cycles=new Map();for(const r of reqFor(name)){
+  if(!cycles.has(r.c))cycles.set(r.c,[]);cycles.get(r.c).push(r.tier);
+ }
+ const stock=Object.entries(remaining).flatMap(([tier,qty])=>Array(Math.min(100,Math.max(0,Number(qty)||0))).fill(tier));
+ const match=(requirements,potential)=>{
+  const used=new Set();let matched=0;
+  for(const need of [...requirements].sort((a,b)=>rank(b)-rank(a))){
+   let best=-1,score=Infinity;
+   stock.forEach((tier,i)=>{
+    if(used.has(i))return;
+    const exact=tier==='Única'?need==='Única':rank(tier)>=rank(need);
+    const canEvolve=tier!=='Scourge'&&need!=='Scourge'&&tier!=='Única'&&need!=='Única'&&rank(tier)<rank(need);
+    if(!(exact||(potential&&canEvolve)))return;
+    const priority=exact?rank(tier)-rank(need):100+rank(need)-rank(tier);
+    if(priority<score){best=i;score=priority;}
+   });
+   if(best!==-1){used.add(best);matched++}
+  }
+  return matched;
+ };
+ return [...cycles.values()].flatMap(req=>[match(req,false),match(req,true)]);
+}
+// Bloqueio conservador adicional para droids favoritos ou com habilidades registradas.
+function protectedUnit(u){return !!u&&(isIconic(u.name)||u.favorite||u.traitStatus==='known');}
+function canConsumeParts(parts,ids=[],skipReservation=''){
+ if(!state.path)return false;
+ const consumed={};const reserved=fusionPlanNeeds(skipReservation);
+ for(const part of parts){
+  if(isIconic(part.name)||part.tier==='Scourge')return false;
+  const key=nextId(part.name,part.tier);consumed[key]=(consumed[key]||0)+1;
+  if(consumed[key]+(reserved[key]||0)>(state.inventory[part.name]?.[part.tier]||0))return false;
+ }
+ if(ids.length){if(new Set(ids).size!==ids.length||ids.some(id=>protectedUnit(unitById(id))))return false;}
+ for(const name of new Set(parts.map(p=>p.name))){
+  const before={...(state.inventory[name]||{})},after={...before};
+  for(const [key,n] of Object.entries(consumed))if(key.startsWith(name+'::'))after[key.slice(name.length+2)]=Math.max(0,(after[key.slice(name.length+2)]||0)-n);
+  const baseline=futureCycleCoverage(name,before),result=futureCycleCoverage(name,after);
+  if(result.some((v,i)=>v<baseline[i]))return false;
+ }
+ return true;
 }
 // Planejamento conservador de evolução: obtém o pico de demanda por limiar de
 // variante, sem somar ciclos distintos; atribui primeiro o melhor droid disponível
@@ -364,8 +402,9 @@ function requireCounts(){
   // possam ser evoluídas para cobrir exigências futuras ainda descobertas.
   for(const row of [...rows].sort((a,b)=>rank(a.tier)-rank(b.tier))){
    const tier=row.tier,free=remainder[tier];let sell=0;
+   const protectedQty=unitsFor(name,tier).filter(protectedUnit).length;
    if(state.path){
-    let low=0,high=free;
+    let low=0,high=Math.max(0,free-protectedQty);
     while(low<high){
      const mid=Math.ceil((low+high)/2);
      remainder[tier]=free-mid;
@@ -423,7 +462,7 @@ function entryInventory(e,baseQuickSale=false){
  const status=split.keep?(now?'Necessário agora':future||'Reservado para fusão / guardar'):'Pode Vender';
  const statusHtml=upgradeText ? upgradeText : (split.keep&&!now&&nextCycle ? futureHtml : h(status));
  // A ação de venda fica FORA do botão que abre detalhes: evita dois cliques concorrentes.
- const sellQuick=baseQuickSale?`<div class="base-quick-actions"><button type="button" class="base-sell-one" data-action="sellOne" data-name="${h(e.name)}" data-tier="${h(e.tier)}" title="Registrar a venda de 1 unidade no jogo e atualizar a base imediatamente" aria-label="Registrar venda de 1 unidade de ${h(e.name)} ${h(variantLabel(e.tier))}">Registrar venda</button>${fusionReserved?'<small class="base-risk" title="Há reserva ativa para fusão">⚗ Reservado para fusão</small>':upgrade?'<small class="base-risk" title="Esta variante será necessária para evoluir">⚠ Guardar para evoluir</small>':split.keep?'<small class="base-risk" title="Pode ser necessário no seu caminho">⚠ Necessário no caminho</small>':''}</div>`:'';
+ const sellQuick=baseQuickSale&&split.sell>0?`<div class="base-quick-actions"><button type="button" class="base-sell-one" data-action="sellOne" data-name="${h(e.name)}" data-tier="${h(e.tier)}" title="Registrar a venda de 1 unidade no jogo e atualizar a base imediatamente" aria-label="Registrar venda de 1 unidade de ${h(e.name)} ${h(variantLabel(e.tier))}">Registrar venda</button>${fusionReserved?'<small class="base-risk" title="Há reserva ativa para fusão">⚗ Reservado para fusão</small>':upgrade?'<small class="base-risk" title="Esta variante será necessária para evoluir">⚠ Guardar para evoluir</small>':split.keep?'<small class="base-risk" title="Pode ser necessário no seu caminho">⚠ Necessário no caminho</small>':''}</div>`:'';
  return `<div class="entry droid-entry ${baseQuickSale?'base-owned-row':''}"><button type="button" ${panelButton(e.name,e.tier)}>${imageOf(e.name,false,e.tier)}<span class="droid-info"><span class="droid-heading">${h(e.name)} ${unitsFor(e.name,e.tier).some(u=>u.favorite)?'<span class="unit-fav-icon" title="Favorito">★</span>':''} ${rarityTag(byName[e.name]?.rarity)} ${variantBadge(e.tier)}</span><span class="entry-sub">${nf(e.qty)} unidade(s) · ${statusHtml}</span>${split.keep&&now&&future?`<span class="entry-sub future-line">${futureHtml}</span>`:''}<span class="quantities">${split.keep?`<span class="keep-label">Guardar ${split.keep}</span>`:''}${fusionReserved?`<span class="fusion-keep-label">Fusão ${fusionReserved}</span>`:''}${split.sell?`<span class="sell-label">Pode Vender ${split.sell}</span>`:''}${FUSION_INGREDIENTS[e.name]?.length?`<span class="fusion-keep-label">⚗ Fusão especial · ${FUSION_INGREDIENTS[e.name].length}</span>`:''}</span></span>${!baseQuickSale?'<span class="entry-arrow">›</span>':''}</button>${sellQuick}</div>`;
 }
 function requirementRow(r){const count=meets(r.name,r.tier),currBest=best(r.name),owned=anyOwned(r.name),isAbsent=state.absent[r.name]===true,good=count>=needAt(r.name,state.path,state.cycle).length;
@@ -685,26 +724,13 @@ function availableFusionStock(){
  for(const row of requireCounts().saleEntries)stock[nextId(row.name,row.tier)]=row.qty;
  return stock;
 }
-function safeForProgress(parts){
- // Conferência adicional contra consumir uma unidade que atende requisito atual
- // ou futuro já satisfeito. O cálculo principal de excedentes usa todos os ciclos.
- const byConsumed={};for(const p of parts)byConsumed[nextId(p.name,p.tier)]=(byConsumed[nextId(p.name,p.tier)]||0)+1;
- for(const name of new Set(parts.map(p=>p.name))){
-  const owned={...(state.inventory[name]||{})},before=futureCycleCoverage(name,owned);
-  for(const [key,qty] of Object.entries(byConsumed))if(key.startsWith(name+'::')){
-   const tier=key.slice(name.length+2);owned[tier]=Math.max(0,(owned[tier]||0)-qty);
-  }
-  const after=futureCycleCoverage(name,owned);
-  if(after.some((value,index)=>value<before[index]))return false;
- }
- return true;
-}
+function safeForProgress(parts){return canConsumeParts(parts)}
 function planIsFree(parts,skip=''){
  const used={},reserved=fusionPlanNeeds(skip);
  for(const p of parts){const key=nextId(p.name,p.tier);used[key]=(used[key]||0)+1;
   if(used[key]+(reserved[key]||0)>(state.inventory[p.name]?.[p.tier]||0))return false;
  }
- return true;
+ return canConsumeParts(parts,[],skip);
 }
 function fusionSuggestions(){
  const stock=availableFusionStock(),ideas=[],seen=new Set();
@@ -825,7 +851,7 @@ function fusionAvailability(recipe,tiers){
   used[key]=(used[key]||0)+1;
   return {name,tier,free,stock,have:free>=1};
  });
- return {slots,ready:slots.every(x=>x.have),owned:slots.filter(x=>x.have).length,tier:tiers.reduce((lowest,t)=>rank(t)<rank(lowest)?t:lowest,tiers[0])};
+ return {slots,ready:slots.every(x=>x.have)&&canConsumeParts(recipe.parts.map((name,i)=>({name,tier:tiers[i]})),[],recipe.id),owned:slots.filter(x=>x.have).length,tier:tiers.reduce((lowest,t)=>rank(t)<rank(lowest)?t:lowest,tiers[0])};
 }
 function fusionRisks(recipe,tiers){
  if(!state.path)return [];
@@ -904,7 +930,7 @@ function fusionPage(){
  return titlePage('LABORATÓRIO DE FUSÃO','Fusões especiais','17 receitas exclusivas, ingredientes por conta e proteção dos droids reservados.')+
  `<div class="fusion-overview"><div class="card"><b>${ready}</b><span>Prontas agora</span></div><div class="card"><b>${reserved}</b><span>Reservadas</span></div><div class="card"><b>${done}</b><span>Fusões registradas</span></div></div>
  <div class="hint fusion-intro"><strong>Como funciona:</strong> cada fusão utiliza <strong>3 droids</strong> e cria 1. A variante final é a <strong>menor variante</strong> escolhida. Toque em uma receita para conferir as suas variantes. Reserve ingredientes para protegê-los das recomendações de venda; após realizar a fusão no jogo, confirme para atualizar o inventário. <strong>Reservar não consome droids.</strong></div>
- <section class="card card-pad fusion-toolbar"><div class="searchbox"><input class="input search-input" data-input="fusionSearch" value="${h(ui.fusionSearch)}" placeholder="Buscar fusão ou ingrediente..." aria-label="Buscar fusões"></div><div class="quick-filters">${['Todas','Prontas','Faltando','Reservadas','Já realizadas'].map(f=>`<button type="button" class="filter-pill ${ui.fusionFilter===f?'on':''}" data-action="fusionFilter" data-filter="${h(f)}">${h(f)}</button>`).join('')}</div></section>
+ <div class="card card-pad" style="margin-bottom:14px"><h3>Escolher meus droids</h3><p class="mini-note">Monte uma combinação com três droids do seu inventário. A proteção do caminho é obrigatória.</p>${btn('＋ Escolher 3 droids','customFusion')}</div><section class="card card-pad fusion-toolbar"><div class="searchbox"><input class="input search-input" data-input="fusionSearch" value="${h(ui.fusionSearch)}" placeholder="Buscar fusão ou ingrediente..." aria-label="Buscar fusões"></div><div class="quick-filters">${['Todas','Prontas','Faltando','Reservadas','Já realizadas'].map(f=>`<button type="button" class="filter-pill ${ui.fusionFilter===f?'on':''}" data-action="fusionFilter" data-filter="${h(f)}">${h(f)}</button>`).join('')}</div></section>
  ${groups.map(g=>{const items=shown.filter(x=>byName[x.r.id]?.rarity===g);return items.length?`<section class="fusion-group"><h2>${h(rarityLabel(g))} <span>${items.length} receita(s)</span></h2><div class="fusion-grid">${items.map(x=>fusionCard(x.r)).join('')}</div></section>`:''}).join('')||'<div class="card empty">Nenhuma fusão encontrada neste filtro.</div>'}
  <div class="hint" style="margin-top:20px">Receitas comunitárias, sujeitas a mudanças no jogo. Confira a combinação na estação de fusão antes de consumir seus droids. <a href="https://droidtycoonhelper.com/fusion/" target="_blank" rel="noopener noreferrer">Conferir fonte das receitas</a>.</div>`+footer();
 }
@@ -1182,11 +1208,18 @@ function renderModal(){const root=document.getElementById('modal-root');const m=
   }break;
  }
  case 'auditImages':{title='Verificar imagens dos droids';subtitle='Conferência dos 100 droids do catálogo';content='<p class="small muted">Este teste tenta carregar cada foto no seu navegador. Uma falha pode ser causada pela conexão, por bloqueio do site da imagem ou por arquivo inexistente.</p><div class="image-audit-summary" id="image-audit-summary" role="status">Preparando teste...</div><div class="image-audit-track" aria-hidden="true"><div id="image-audit-fill"></div></div><div id="image-audit-errors" class="image-audit-errors"></div>';buttons=`${btn('Testar novamente','restartImageAudit',{kind:'secondary'})}${btn('Copiar falhas','copyImageIssues',{kind:'ghost'})}`;break}
+ case 'customFusion':{
+  title='Escolher meus droids para fusão';subtitle='Selecione três modelos e variantes da conta ativa';
+  const opts=arrInventory(state).filter(x=>!isIconic(x.name)&&x.tier!=='Scourge');
+  const choices=opts.map(x=>`<option value="${h(x.name+'::'+x.tier)}">${h(x.name)} · ${h(variantLabel(x.tier))} (${x.qty})</option>`).join('');
+  content=`<p class="mini-note">Escolha exatamente três droids que possui. O aplicativo verifica a receita, as variantes e todos os ciclos futuros antes de permitir registrar a fusão.</p>${[0,1,2].map(i=>`<div class="field"><label>Droid ${i+1}</label><select class="select" name="part${i}" required><option value="">Selecione...</option>${choices}</select></div>`).join('')}<div class="hint">Unidades favoritas, icônicas ou com habilidade cadastrada ficam protegidas. Flagelo não participa de fusões automáticas.</div>`;
+  buttons='<button class="btn" type="submit">Verificar combinação</button>';break;
+ }
  case 'fusionConfirm':{
   const recipe=FUSION_BY_ID[m.id];if(!recipe){ui.modal=null;root.innerHTML='';return}
   const availability=fusionAvailability(recipe,m.tiers),warnings=fusionRisks(recipe,m.tiers);
   title=`Confirmar fusão: ${recipe.id}`;subtitle='Registre apenas depois de realizar no jogo.';
-  content=`<p>Esta operação retirará exatamente <strong>3 droids</strong> do inventário da conta <strong>${h(currentAccount().name)}</strong> e adicionará <strong>1 ${h(recipe.id)} · ${variantText(availability.tier)}</strong>.</p><div class="fusion-confirm-list">${recipe.parts.map((name,i)=>`<div class="details-line"><span>${h(name)}</span><b>${variantText(m.tiers[i])}</b></div>`).join('')}</div>${ingredientPickers(recipe.parts.map((name,i)=>({name,tier:m.tiers[i]})))}${warnings.length?`<div class="hint fusion-warning"><strong>Atenção ao seu renascimento!</strong> Consumir estes ingredientes pode prejudicar requisitos do seu caminho: ${h(warnings.join(', '))}. Confirme apenas se decidiu usá-los mesmo assim.</div>`:'<div class="hint">Os ingredientes serão consumidos no cadastro. Você poderá desfazer a alteração pelo aviso na tela.</div>'}${availability.ready?'':'<div class="hint fusion-warning">Os ingredientes não estão mais disponíveis. Cancele e confira seu inventário.</div>'}`;
+  content=`<p>Esta operação retirará exatamente <strong>3 droids</strong> do inventário da conta <strong>${h(currentAccount().name)}</strong> e adicionará <strong>1 ${h(recipe.id)} · ${variantText(availability.tier)}</strong>.</p><div class="fusion-confirm-list">${recipe.parts.map((name,i)=>`<div class="details-line"><span>${h(name)}</span><b>${variantText(m.tiers[i])}</b></div>`).join('')}</div>${ingredientPickers(recipe.parts.map((name,i)=>({name,tier:m.tiers[i]})))}${warnings.length?`<div class="hint fusion-warning"><strong>Atenção ao seu renascimento!</strong> Consumir estes ingredientes pode prejudicar requisitos do seu caminho: ${h(warnings.join(', '))}. A operação será bloqueada se afetar requisitos futuros.</div>`:'<div class="hint">Os ingredientes serão consumidos no cadastro. Você poderá desfazer a alteração pelo aviso na tela.</div>'}${availability.ready?'':'<div class="hint fusion-warning">Os ingredientes não estão mais disponíveis. Cancele e confira seu inventário.</div>'}`;
   buttons=`<button class="btn" type="submit" ${availability.ready?'':'disabled'}>Sim, já fiz esta fusão</button>`;break;
  }
  case 'genericConfirm':{
@@ -1369,7 +1402,7 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
   if(specialized&&qty!==1)return notify('Para proteger habilidades, registre uma unidade por vez.');
   const ids=qty===1?[String(vals.get('unitId')||'')]:null;
   let chosen;try{chosen=selectedUnits(m.name,m.tier,qty,ids)}catch(e){return notify(e.message)}
-  if(!ensureValuableConsent(chosen,'vender'))return;
+  if(chosen.some(protectedUnit)||!canConsumeParts(Array(qty).fill({name:m.name,tier:m.tier}),chosen.map(u=>u.id)))return notify('Venda bloqueada: droid protegido ou necessário para o futuro.');
   save(()=>{mutateInventory(m.name,m.tier,-qty,chosen.map(u=>u.id),'venda');opRecord('venda',chosen);state.sales.push({name:m.name,tier:m.tier,qty,date:new Date().toISOString()});state.sales=state.sales.slice(-30)},'Venda registrada. Você pode desfazer.');break;
  }
  case 'cycle':{const cycle=nInt(vals.get('cycle'),1,40);if(!cycle)return;save(()=>{state.cycle=cycle},`Ciclo atualizado para ${cycle}.`);break}
@@ -1424,13 +1457,26 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
   if(m.origin==='cloud')void window.DroidDrive?.onCloudImportComplete();
   break;
  }
+ case 'customFusion':{
+  const parts=[0,1,2].map(i=>String(vals.get('part'+i)||'')).map(v=>{const pos=v.lastIndexOf('::');return {name:v.slice(0,pos),tier:v.slice(pos+2)}});
+  if(parts.some(p=>!validName(p.name)||!validTier(p.name,p.tier)))return notify('Selecione três droids cadastrados.');
+  let kind='';const recipe=FUSIONS.find(r=>r.parts.slice().sort().join('|')===parts.map(p=>p.name).sort().join('|'));
+  if(recipe)kind='special';
+  else for(const candidate of ['variant','mythic','rarity'])if(genericPlanResult(candidate,parts)){kind=candidate;break;}
+  if(!kind||!genericPlanResult(kind,parts))return notify('Combinação sem receita confirmada. Nada foi alterado.');
+  if(!planIsFree(parts))return notify('Fusão bloqueada: ingredientes reservados ou necessários para o futuro.');
+  ui.modal=null;
+  if(kind==='special'){const remaining=[...parts];const ordered=recipe.parts.map(name=>{const index=remaining.findIndex(p=>p.name===name);return remaining.splice(index,1)[0].tier});openModal('fusionConfirm',{id:recipe.id,tiers:ordered});}
+  else openModal('genericConfirm',{fusionKind:kind,parts});
+  return;
+ }
  case 'genericConfirm':{
   const result=genericPlanResult(m.fusionKind,m.parts);
   if(!result||!planIsFree(m.parts,m.planId?'g:'+m.planId:''))return notify('Ingredientes indisponíveis ou já reservados.');
   const name=result.random?String(vals.get('resultName')||''):result.name;
   if(!validName(name)||!validTier(name,result.tier)||(result.random&&(byName[name].rarity!==result.rarity||!!FUSION_BY_ID[name])))return notify('Selecione o droid realmente recebido.');
   let chosen;try{chosen=ingredientSelection(vals,m.parts)}catch(err){return notify(err.message)}
-  if(!ensureValuableConsent(chosen,'usar na fusão'))return;
+  if(!canConsumeParts(m.parts,chosen.map(u=>u.id),m.planId?'g:'+m.planId:''))return notify('Fusão bloqueada: ingrediente protegido ou necessário para o futuro.');
   save(()=>{
    for(const u of chosen)mutateInventory(u.name,u.tier,-1,[u.id],'fusão');
    mutateInventory(name,result.tier,1);opRecord('fusão',chosen,{result:state.units[state.units.length-1]?.id});
@@ -1444,7 +1490,7 @@ function submitModal(form){const m=ui.modal;if(!m)return;const vals=new FormData
   const recipe=FUSION_BY_ID[m.id];if(!recipe||!Array.isArray(m.tiers)||m.tiers.length!==3)return notify('Receita inválida.');
   const status=fusionAvailability(recipe,m.tiers);if(!status.ready)return notify('Faltam ingredientes ou alguma unidade está reservada em outra fusão.');
   let chosen;try{chosen=ingredientSelection(vals,recipe.parts.map((name,i)=>({name,tier:m.tiers[i]})))}catch(err){return notify(err.message)}
-  if(!ensureValuableConsent(chosen,'usar na fusão'))return;
+  if(!canConsumeParts(recipe.parts.map((name,i)=>({name,tier:m.tiers[i]})),chosen.map(u=>u.id),recipe.id))return notify('Fusão bloqueada: ingrediente protegido ou necessário para o futuro.');
   save(()=>{
    chosen.forEach(u=>mutateInventory(u.name,u.tier,-1,[u.id],'fusão'));
    mutateInventory(recipe.id,status.tier,1);opRecord('fusão especial',chosen,{result:state.units[state.units.length-1]?.id});
@@ -1521,6 +1567,7 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
   const id=button.dataset.id;if(!state.fusions.plans[id])return;
   save(()=>{delete state.fusions.plans[id]},`Reserva de ${id} removida.`);delete ui.fusionDraft[id];break;
  }
+ case 'customFusion':openModal('customFusion');break;
  case 'fusionMake':{
   const id=button.dataset.id,r=FUSION_BY_ID[id],tiers=r&&[...fusionTiers(r)];if(!r)return;
   if(!fusionAvailability(r,tiers).ready)return notify('Ingredientes indisponíveis. Confira suas variantes e reservas.');
@@ -1537,11 +1584,11 @@ function handleAction(button){const a=button.dataset.action,n=button.dataset.nam
  case 'evolve':ui.evolveDestination=T.includes(button.dataset.to)?button.dataset.to:'';openModal('evolve',{name:n,tier:t});break;
  case 'removeOwned':{if(!n||!t||!(state.inventory[n]?.[t]>0))return notify('Este droid não está no inventário desta conta.');openModal('removeOwned',{name:n,tier:t});break;}
  case 'sellOne':{
-  if(ui.tab!=='inventory'||!validName(n)||!validTier(n,t)||!(state.inventory[n]?.[t]>0))return notify('Esse droid não está mais na sua base.');
+  if(ui.tab!=='inventory'||!validName(n)||!validTier(n,t)||!(state.inventory[n]?.[t]>0)||calcRowCounts(n,t).sell<1)return notify('Esse droid não está mais na sua base.');
   if(unitsFor(n,t).some(u=>u.traitStatus==='known'||u.favorite)){openModal('sale',{name:n,tier:t,max:1});return}
   let released=[];
   save(()=>{
-   const chosen=smartUnits(n,t,1);mutateInventory(n,t,-1,chosen.map(u=>u.id),'venda rápida');opRecord('venda rápida',chosen);
+   const chosen=smartUnits(n,t,1);if(chosen.some(protectedUnit)||!canConsumeParts([{name:n,tier:t}],chosen.map(u=>u.id)))throw Error('Unidade protegida ou necessária para o futuro.');mutateInventory(n,t,-1,chosen.map(u=>u.id),'venda rápida');opRecord('venda rápida',chosen);
    released=clearBrokenFusionReservations();
    if(!anyOwned(n))state.absent[n]=true;
    state.sales.push({name:n,tier:t,qty:1,date:new Date().toISOString()});

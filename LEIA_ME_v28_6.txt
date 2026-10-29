@@ -1,0 +1,8 @@
+Droid Tycoon v28.6 — atualização candidata
+
+Inclui proteção de venda e fusão baseada em cobertura real/potencial de variantes e form de combinação personalizada.
+
+Não sobrescrever styles.css, traits.js nem favicon.svg. Faça backup de TODAS as contas antes de testar.
+Teste numa branch: Padrão+Kyber, Flagelo, favoritos, 3 modelos distintos, reservas, mudança de conta e restauração Drive.
+As operações registram apenas fusões já realizadas no jogo. Não há garantia de que a combinação seja aceita no jogo fora das regras verificadas.
+Não altera schema de backup.
