@@ -1,0 +1,22 @@
+DROID TYCOON v28.8 — NAVEGAÇÃO RENOVADA E DROID QUE FALTAM
+
+NOVIDADES
+- Nova aba “Droids que faltam”, disponível na navegação lateral e na barra inferior do celular.
+- Lista os droids necessários do ciclo atual até o ciclo 40, agrupados por modelo.
+- Separa droids ainda não cadastrados, unidades que faltam conseguir e variantes que precisam ser evoluídas.
+- Mostra quantidade, variantes e ciclos em que cada droid será necessário.
+- Inclui pesquisa, filtros e atalhos para cadastrar ou evoluir diretamente da lista.
+- Reaproveita o cálculo existente de necessidade futura, reservas de fusão e evolução; não soma indevidamente requisitos de ciclos diferentes.
+- Navegação desktop reorganizada em Progressão, Minha Coleção e Ferramentas.
+- Navegação móvel simplificada com Base, Caminho, Faltam, Simular e menu Mais.
+
+COMPATIBILIDADE E SEGURANÇA
+- Nenhuma alteração no schema dos backups.
+- Nenhuma migração de dados.
+- Inventário, contas, unidades, habilidades, históricos, Cristais Nova, fusões e sincronização Google Drive preservados.
+- Arquivos de dados e integrações existentes mantidos.
+
+PUBLICAÇÃO
+- Substitua os arquivos index.html, app.js e styles.css pelos desta versão.
+- Mantenha os demais arquivos do site como estão.
+- Antes da publicação, exporte um backup JSON completo e teste em uma cópia/branch.
