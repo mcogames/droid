@@ -1,0 +1,18 @@
+DROID TYCOON — ATUALIZAÇÃO VISUAL v28.9
+
+O QUE MUDA
+- Aparência mais moderna com acabamento neon controlado nas cores do próprio projeto.
+- Navegação lateral e móvel com hierarquia visual mais clara.
+- Botões principais em verde-menta, secundários em azul e ações destrutivas em vermelho.
+- Melhor contraste em cartões, formulários, menus, modais e notificações.
+- Atalho + Droid com apresentação correta em desktop e celular.
+
+COMO PUBLICAR
+1. Faça um backup JSON das contas antes de atualizar, como boa prática.
+2. Envie o index.html atualizado para o mesmo diretório do site.
+3. Adicione visual-refresh.css ao mesmo diretório.
+4. Não apague nem substitua os outros arquivos do projeto.
+5. Atualize a página com Ctrl + F5. No celular, feche e reabra a página ou limpe o cache do site se o estilo antigo continuar aparecendo.
+
+SEGURANÇA DOS DADOS
+Esta atualização altera apenas HTML de referência de estilos e CSS. Não modifica inventários, contas, unidades, habilidades, progressão, histórico, backups ou sincronização do Google Drive.
